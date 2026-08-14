@@ -89,9 +89,13 @@ node "C:\Users\<你>\.codex\skills\codex-bridge\scripts\bridge.js" shot "屏幕�
 
 ## 演示
 
-「发图 → 落地文件 → Codex 看图 → 文字回流 → Agent 回答」完整流程：
+「发图 → 落地文件 → Codex 看图 → 文字回流 → Agent 回答」完整流程（四步）：
 
-![演示](docs/demo.gif)
+| ① 用户发图 | ② Codex 分析 |
+|---|---|
+| <img src="docs/demo-step-1.png" width="100%"> | <img src="docs/demo-step-2.png" width="100%"> |
+| ③ 文字回流 | ④ Agent 回答 |
+| <img src="docs/demo-step-3.png" width="100%"> | <img src="docs/demo-step-4.png" width="100%"> |
 
 ## 安全说明
 

@@ -96,9 +96,13 @@ See `SKILL.md` for the full parameter reference and per-mode details.
 
 ## Demo
 
-Full flow — send image → materialize file → Codex analyzes → text flows back → agent answers:
+Full flow — send image → materialize file → Codex analyzes → text flows back → agent answers (four steps):
 
-![demo](docs/demo.gif)
+| ① User sends image | ② Codex analyzes |
+|---|---|
+| <img src="docs/demo-step-1.png" width="100%"> | <img src="docs/demo-step-2.png" width="100%"> |
+| ③ Text flows back | ④ Agent answers |
+| <img src="docs/demo-step-3.png" width="100%"> | <img src="docs/demo-step-4.png" width="100%"> |
 
 ## Security notes
 
