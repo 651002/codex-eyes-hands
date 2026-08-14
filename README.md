@@ -1,7 +1,10 @@
-# codex-bridge · Codex 能力分身技能
+# codex-eyes-hands · Codex 能力分身技能
 
-给「没有视觉 / 不能操作界面」的 AI agent（比如 DeepSeek Harness 里的模型）一个外挂：
-把本机 **Codex CLI** 变成它的**眼睛和手**——并提供一键包装脚本、监督者模式、双通道容灾。
+> **主要为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 打造**：
+> 让 Harness 里「没有视觉、不能操作界面」的纯文本模型（如 DeepSeek-V4-Pro）
+> 调用本机 **Codex CLI** 当**眼睛和手**——看图 / 读文件 / 画图 / 监督执行 / 双通道容灾。
+
+技能本体零依赖，也可独立用于任何能调本机 Codex CLI 的 agent（Codex 桌面版、其他框架）。
 
 ## 能力一览
 
@@ -47,9 +50,10 @@ node "C:\Users\<你>\.codex\skills\codex-bridge\scripts\bridge.js" shot "屏幕�
 
 完整参数与各模式细节见 `SKILL.md`。
 
-## 在 DeepSeek Harness 里使用（可选）
+## 在 DeepSeek Harness 里使用（主要场景）
 
-默认情况下，DSH 对「无视觉模型」会在网关层拒绝图片消息（`当前模型不支持图片`）。
+Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web 里发图片会被网关拒绝
+（弹「当前模型不支持图片」），图片根本到不了 agent。
 仓库里的 [patches/dsh-image-gateway.md](patches/dsh-image-gateway.md) 说明如何给
 `@deepseek-ai/dsh-host-apiproxy` 打一个小补丁：把图片**落地成文件**、把**绝对路径以文本**
 注入 agent 消息，之后 agent 就能用本技能的 `see` 模式调 Codex 看图了。
