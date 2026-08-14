@@ -25,6 +25,10 @@ the local Codex CLI (Codex desktop app, other agent frameworks).
 | `type` / `key` | Send keystrokes to a specific window | ⚠️ experimental |
 | Backup channel | Auto-switch to Claude when the primary channel fails | ✅ |
 
+## Architecture
+
+![architecture](docs/architecture.png)
+
 ## Requirements
 
 - Windows + Node.js ≥ 18 (24 recommended; the script uses `node:sqlite`)
@@ -65,6 +69,12 @@ node "C:\Users\<You>\.codex\skills\codex-bridge\scripts\bridge.js" shot "what is
 ```
 
 See `SKILL.md` for the full parameter reference and per-mode details.
+
+## Demo
+
+Full flow — send image → materialize file → Codex analyzes → text flows back → agent answers:
+
+![demo](docs/demo.gif)
 
 ## Using it inside DeepSeek Harness (primary scenario)
 

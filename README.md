@@ -23,6 +23,10 @@
 | `type` / `key` | 向指定窗口发按键 | ⚠️ 实验性 |
 | 备用通道 | 主通道失败自动切 Claude | ✅ |
 
+## 架构流程
+
+![架构图](docs/architecture.png)
+
 ## 前置要求
 
 - Windows + Node.js ≥ 18（推荐 24，脚本用到了 `node:sqlite`）
@@ -61,6 +65,12 @@ node "C:\Users\<你>\.codex\skills\codex-bridge\scripts\bridge.js" shot "屏幕�
 ```
 
 完整参数与各模式细节见 `SKILL.md`。
+
+## 演示
+
+「发图 → 落地文件 → Codex 看图 → 文字回流 → Agent 回答」完整流程：
+
+![演示](docs/demo.gif)
 
 ## 在 DeepSeek Harness 里使用（主要场景）
 
