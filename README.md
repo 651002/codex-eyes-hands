@@ -8,6 +8,8 @@
 
 技能本体零依赖，也可独立用于任何能调本机 Codex CLI 的 agent（Codex 桌面版、其他框架）。
 
+> 👉 **在 DSH 里发图被拒（「当前模型不支持图片」）？** 看下方「解决：当前模型不支持图片」一节，提供一键补丁脚本。
+
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
@@ -31,6 +33,18 @@
 ## 架构流程
 
 ![架构图](docs/architecture.png)
+
+## 解决：当前模型不支持图片（DSH 用户先看这节）
+
+Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web 里发图片会被网关拒绝
+（弹「当前模型不支持图片」），图片根本到不了 agent。
+
+**解法**：给 `@deepseek-ai/dsh-host-apiproxy` 打一个小补丁——把图片**落地成文件**、把**绝对路径
+以文本**注入 agent 消息，之后 agent 就能用本技能的 `see` 模式调 Codex 看图了。
+
+- 补丁说明：[patches/dsh-image-gateway.md](patches/dsh-image-gateway.md)
+- **一键补丁脚本**：[patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
+  （自动备份 + 校验 + 回滚，用法见文件头部注释；改完重启 dsh web 生效）
 
 ## 前置要求
 
@@ -78,16 +92,6 @@ node "C:\Users\<你>\.codex\skills\codex-bridge\scripts\bridge.js" shot "屏幕�
 「发图 → 落地文件 → Codex 看图 → 文字回流 → Agent 回答」完整流程：
 
 ![演示](docs/demo.gif)
-
-## 在 DeepSeek Harness 里使用（主要场景）
-
-Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web 里发图片会被网关拒绝
-（弹「当前模型不支持图片」），图片根本到不了 agent。
-仓库里的 [patches/dsh-image-gateway.md](patches/dsh-image-gateway.md) 说明如何给
-`@deepseek-ai/dsh-host-apiproxy` 打一个小补丁：把图片**落地成文件**、把**绝对路径以文本**
-注入 agent 消息，之后 agent 就能用本技能的 `see` 模式调 Codex 看图了。
-**提供一键补丁脚本** [patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
-（自动备份 + 校验 + 回滚，用法见文件头部注释）。
 
 ## 安全说明
 

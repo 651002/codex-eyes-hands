@@ -10,6 +10,9 @@
 The skill itself has zero dependencies and also works standalone with any agent that can invoke
 the local Codex CLI (Codex desktop app, other agent frameworks).
 
+> 👉 **Images rejected in DSH ("current model does not support images")?** See the
+> "Fixing: current model does not support images" section below — a one-click patch script is provided.
+
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
@@ -33,6 +36,19 @@ the local Codex CLI (Codex desktop app, other agent frameworks).
 ## Architecture
 
 ![architecture](docs/architecture.png)
+
+## Fixing: current model does not support images (DSH users: read this first)
+
+A Harness agent running a text-only model (e.g. DeepSeek-V4-Pro) gets image messages rejected by
+the gateway ("current model does not support images") — the image never reaches the agent.
+
+**Fix**: patch `@deepseek-ai/dsh-host-apiproxy` — images are **materialized to files** and their
+**absolute paths are injected into the message as text**, so the agent can analyze them with the
+`see` mode.
+
+- Patch reference: [patches/dsh-image-gateway.en.md](patches/dsh-image-gateway.en.md)
+- **One-click patch script**: [patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
+  (auto backup + verification + rollback; see the usage comment at the top; restart `dsh web` afterwards)
 
 ## Requirements
 
@@ -83,16 +99,6 @@ See `SKILL.md` for the full parameter reference and per-mode details.
 Full flow — send image → materialize file → Codex analyzes → text flows back → agent answers:
 
 ![demo](docs/demo.gif)
-
-## Using it inside DeepSeek Harness (primary scenario)
-
-By default, a Harness agent running a text-only model (e.g. DeepSeek-V4-Pro) gets its image
-messages rejected by the gateway ("current model does not support images") — the image never
-reaches the agent. [patches/dsh-image-gateway.en.md](patches/dsh-image-gateway.en.md) shows how to
-patch `@deepseek-ai/dsh-host-apiproxy`: images are **materialized to files** and their **absolute
-paths are injected into the message as text**, so the agent can analyze them with the `see` mode.
-A **one-click patch script** is provided: [patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
-(auto backup + verification + rollback; see the usage comment at the top of the file).
 
 ## Security notes
 
