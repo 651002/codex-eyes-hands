@@ -10,6 +10,11 @@
 The skill itself has zero dependencies and also works standalone with any agent that can invoke
 the local Codex CLI (Codex desktop app, other agent frameworks).
 
+![License](https://img.shields.io/badge/License-MIT-green)
+![Platform](https://img.shields.io/badge/Platform-Windows-blue)
+![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
+![Release](https://img.shields.io/badge/Release-v1.0.0-cyan)
+
 ## Capabilities
 
 | Mode | What it does | Tested |
@@ -31,7 +36,8 @@ the local Codex CLI (Codex desktop app, other agent frameworks).
 
 ## Requirements
 
-- Windows + Node.js ≥ 18 (24 recommended; the script uses `node:sqlite`)
+- Windows + Node.js ≥ 22.5 (24 recommended; the backup-channel key reader uses `node:sqlite` —
+  below 22.5 everything else still works, only that reader is unavailable)
 - [Codex CLI](https://github.com/openai/codex) (npm global install; tested on v0.145.0)
 - (Optional) CC Switch: the backup channel's API key is read at runtime from its database (`~/.cc-switch/cc-switch.db`)
 
@@ -59,6 +65,8 @@ to fill into your Codex config. Setup tutorial: [docs/relay-setup.en.md](docs/re
    - No key is written to disk: the script reads a Claude key (not shared with any codex channel)
      from the CC Switch database at runtime.
 
+**Updating**: run `git pull` inside the skills directory (or re-download this repo).
+
 ## Quick start
 
 ```powershell
@@ -83,6 +91,8 @@ messages rejected by the gateway ("current model does not support images") — t
 reaches the agent. [patches/dsh-image-gateway.en.md](patches/dsh-image-gateway.en.md) shows how to
 patch `@deepseek-ai/dsh-host-apiproxy`: images are **materialized to files** and their **absolute
 paths are injected into the message as text**, so the agent can analyze them with the `see` mode.
+A **one-click patch script** is provided: [patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
+(auto backup + verification + rollback; see the usage comment at the top of the file).
 
 ## Security notes
 
@@ -110,6 +120,9 @@ paths are injected into the message as text**, so the agent can analyze them wit
 - **How do I verify the installation?**
   `node "...\scripts\bridge.js" see "some.png" --ask "what does the image say"` — a description
   in response means it works.
+- **macOS / Linux supported?**
+  The script currently targets Windows (PowerShell / cmd / WScript; `type`/`key` rely on Windows
+  windowing). The core logic is just wrapping Codex CLI calls, so it can be ported.
 
 ## License
 

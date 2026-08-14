@@ -8,6 +8,11 @@
 
 技能本体零依赖，也可独立用于任何能调本机 Codex CLI 的 agent（Codex 桌面版、其他框架）。
 
+![License](https://img.shields.io/badge/License-MIT-green)
+![Platform](https://img.shields.io/badge/Platform-Windows-blue)
+![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
+![Release](https://img.shields.io/badge/Release-v1.0.0-cyan)
+
 ## 能力一览
 
 | 模式 | 作用 | 实测状态 |
@@ -29,7 +34,7 @@
 
 ## 前置要求
 
-- Windows + Node.js ≥ 18（推荐 24，脚本用到了 `node:sqlite`）
+- Windows + Node.js ≥ 22.5（推荐 24：备用通道自动读取用 `node:sqlite`；低于 22.5 其余功能正常，仅该读取不可用）
 - [Codex CLI](https://github.com/openai/codex)（npm 全局安装，实测 v0.145.0）
 - （可选）CC Switch：备用通道的密钥在运行时从它的数据库读取（`~/.cc-switch/cc-switch.db`）
 
@@ -55,6 +60,8 @@
      （`codex exec resume` 不加载 profile 文件，需要主配置里有 provider 定义）。
    - 备用通道的密钥不落盘：脚本运行时从 CC Switch 数据库读取「非 codex 通道共用的」Claude key。
 
+**更新**：在技能目录执行 `git pull`（或重新下载本仓库覆盖）即可升级。
+
 ## 快速开始
 
 ```powershell
@@ -79,6 +86,8 @@ Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web
 仓库里的 [patches/dsh-image-gateway.md](patches/dsh-image-gateway.md) 说明如何给
 `@deepseek-ai/dsh-host-apiproxy` 打一个小补丁：把图片**落地成文件**、把**绝对路径以文本**
 注入 agent 消息，之后 agent 就能用本技能的 `see` 模式调 Codex 看图了。
+**提供一键补丁脚本** [patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
+（自动备份 + 校验 + 回滚，用法见文件头部注释）。
 
 ## 安全说明
 
@@ -102,6 +111,9 @@ Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web
   不会。备用通道密钥由脚本运行时从你本机 CC Switch 数据库读取、只注入本次进程，不落盘；仓库本身不含任何密钥。
 - **怎么快速验证装好了？**
   `node "...\scripts\bridge.js" see "某张图.png" --ask "图里写了什么"`，能返回描述即成功。
+- **支持 macOS / Linux 吗？**
+  目前脚本面向 Windows（依赖 PowerShell / cmd / WScript；`type`/`key` 依赖 Windows 窗口机制）。
+  macOS / Linux 用户可参考思路移植（核心逻辑只是封装 codex CLI 调用）。
 
 ## License
 
