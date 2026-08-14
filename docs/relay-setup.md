@@ -1,3 +1,5 @@
+[English](relay-setup.en.md) | 中文
+
 # 中转接入教程（Codex / CC Switch）
 
 > 本教程面向需要 OpenAI / Claude 中转的同学。

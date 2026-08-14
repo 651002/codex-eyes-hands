@@ -1,23 +1,24 @@
-[English](dsh-image-gateway.en.md) | 中文
+[中文](dsh-image-gateway.md) | English
 
-# DSH 图片网关补丁（可选，供 DeepSeek Harness 用户）
+# DSH Image Gateway Patch (optional, for DeepSeek Harness users)
 
-## 背景
+## Background
 
-DSH 的 agent 若使用无视觉模型（`inputModalities` 不含 `image`），用户在 Web 里发图片时，
-`dsh-host-apiproxy` 的 `prompt` 处理器会直接返回 `MODEL_DOES_NOT_SUPPORT_IMAGES`，
-客户端弹「当前模型不支持图片」，图片根本到不了 agent。
+When a Harness agent runs a text-only model (`inputModalities` without `image`), the `prompt`
+handler of `dsh-host-apiproxy` rejects image messages with `MODEL_DOES_NOT_SUPPORT_IMAGES`,
+and the client shows "current model does not support images" — the image never reaches the agent.
 
-## 思路
+## Idea
 
-不把图片喂给模型。改为：**图片落地成文件 + 把绝对路径以文本块注入消息**，
-agent 拿到路径后交给 codex-bridge 的 `see` 模式（本机 Codex CLI 挂图分析）。
+Don't feed the image to the model. Instead: **materialize the image to a file and inject its
+absolute path into the message as a text block**, so the agent can hand the path to the
+codex-bridge `see` mode (local Codex CLI image analysis).
 
-## 改动文件
+## File to change
 
-`node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js`（该包发布为打包产物，直接改这个文件即可）。
+`node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js` (the package ships as a bundle; edit this file directly).
 
-### 1. 顶部 import 增加 `writeFile`、`join`、`tmpdir`
+### 1. Add `writeFile`, `join`, `tmpdir` to the top imports
 
 ```js
 import { mkdir, stat, writeFile } from "node:fs/promises";
@@ -25,7 +26,7 @@ import { dirname, extname, join } from "node:path";
 import { release, tmpdir } from "node:os";
 ```
 
-### 2. 新增 `materializeImageContent` 函数（放在 `durablePromptContent` 定义之后）
+### 2. Add the `materializeImageContent` function (right after `durablePromptContent`)
 
 ```js
 /** Extension for an image media type, used when materializing to disk. */
@@ -68,9 +69,9 @@ async function materializeImageContent(content) {
 }
 ```
 
-### 3. `prompt` 处理器：把「拒绝」改成「按模型能力分流」
+### 3. In the `prompt` handler: replace "reject" with "route by model capability"
 
-改前：
+Before:
 
 ```js
 if (hasImage) {
@@ -88,7 +89,7 @@ const message = createUserMessage({
 });
 ```
 
-改后：
+After:
 
 ```js
 let durable;
@@ -106,14 +107,14 @@ const message = createUserMessage({
 });
 ```
 
-## 生效
+## Taking effect
 
-该文件是打包 JS、进程启动时已加载到内存，改完需要**重启 `dsh web`** 才生效。
-重启后发图：图片 → 落到 `%TEMP%\dsh-incoming-images\` → 路径以文本进入 agent 消息
-→ agent 用 codex-bridge `see` 调 Codex 看图 → 回答用户。
+The file is bundled JS and is loaded into memory at process start — **restart `dsh web`** to apply.
+After the restart, sending an image works like this: image → saved under `%TEMP%\dsh-incoming-images\`
+→ the path enters the agent message as text → the agent analyzes it with codex-bridge `see` → answers you.
 
-## 注意事项
+## Notes
 
-- `%TEMP%\dsh-incoming-images\` 会累积旧图，可用 codex-bridge 的 `clean` 模式定期清理。
-- 视觉模型不受影响（仍走原来的 `durablePromptContent` 附件存储路径）。
-- 版本更新（`npm install` 升级 dsh 包）后该文件会被覆盖，需重打补丁。
+- `%TEMP%\dsh-incoming-images\` accumulates; clean it periodically with the codex-bridge `clean` mode.
+- Vision models are unaffected (they still use the original `durablePromptContent` attachment path).
+- A package upgrade (`npm install` of the dsh packages) overwrites this file — re-apply the patch.

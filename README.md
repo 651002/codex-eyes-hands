@@ -1,3 +1,5 @@
+[English](README.en.md) | 中文
+
 # codex-eyes-hands · Codex 能力分身技能
 
 > **主要为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 打造**：

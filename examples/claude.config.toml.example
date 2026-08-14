@@ -1,8 +1,11 @@
-# 备用通道配置模板
+# 备用通道配置模板 / Backup channel config template
 # 复制为 C:\Users\<你的用户名>\.codex\claude.config.toml
+# Copy to: C:\Users\<YourName>\.codex\claude.config.toml
 # 注意：把 base_url 换成你自己的中转/Claude 兼容地址（responses 格式），model 换成中转支持的模型
+# Note: replace base_url with your relay (responses wire format) and model with one your relay supports
 #
 # 还没有中转？可以用项目维护者的邀请链接注册（注册后获得 API 地址与密钥）：
+# No relay yet? Register via the maintainer's invite link:
 # https://ai-zjl.cc/register?aff=HVUNFKHSEATR
 
 model_provider = "claude"
