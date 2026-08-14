@@ -27,6 +27,15 @@
 - [Codex CLI](https://github.com/openai/codex)（npm 全局安装，实测 v0.145.0）
 - （可选）CC Switch：备用通道的密钥在运行时从它的数据库读取（`~/.cc-switch/cc-switch.db`）
 
+## 推荐中转（邀请链接）
+
+本技能的主通道与 Claude 备用通道均在某中转上**实测通过**（GPT / Claude 双端点、responses 格式、视觉均可用）。
+需要中转的同学可用下面的邀请链接注册：
+
+👉 https://ai-zjl.cc/register?aff=HVUNFKHSEATR
+
+（此链接是项目维护者的邀请链接；注册后即可获得 API 地址与密钥，填入 codex 配置使用。）
+
 ## 安装
 
 1. 把本仓库放到你的技能目录，最终结构：
