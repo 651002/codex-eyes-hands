@@ -34,7 +34,8 @@
 
 👉 https://ai-zjl.cc/register?aff=HVUNFKHSEATR
 
-（此链接是项目维护者的邀请链接；注册后即可获得 API 地址与密钥，填入 codex 配置使用。）
+（此链接是项目维护者的邀请链接；注册后即可获得 API 地址与密钥，填入 codex 配置使用。
+注册与接入教程见 [docs/relay-setup.md](docs/relay-setup.md)。）
 
 ## 安装
 
@@ -73,6 +74,22 @@ Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web
 - `type` / `key` 会向真实窗口发按键：必须先经用户确认、必须指定 `--window`、
   聚焦失败会自动取消发送、全屏游戏抢焦点时禁用（详见 `SKILL.md` 模式八）。
 - `watch` 监督模式自带红线：只动指定范围、不删不覆盖、危险操作先报告等批准。
+
+## 常见问题（FAQ）
+
+- **Codex 一直报 `Our servers are currently overloaded` / 流断连？**
+  中转上游过载或限流。先等片刻重试；用 CC Switch 换一条通道；或加 `--backup only` 强制走 Claude 备用通道。
+  长期不稳可考虑换一家中转（见上方「推荐中转」）。
+- **图片发不出去，提示「当前模型不支持图片」？**
+  DSH 网关对无视觉模型拦截了图片。按 [patches/dsh-image-gateway.md](patches/dsh-image-gateway.md) 打补丁，
+  图片就会以文件路径到达 agent。
+- **备用通道报 `Model provider 'claude' not found`？**
+  主配置 `~/.codex/config.toml` 里没注册 claude provider（`resume` 不加载 profile）。
+  按 `examples/claude.config.toml.example` 末尾的注释补一段即可。
+- **会不会泄露我的 API 密钥？**
+  不会。备用通道密钥由脚本运行时从你本机 CC Switch 数据库读取、只注入本次进程，不落盘；仓库本身不含任何密钥。
+- **怎么快速验证装好了？**
+  `node "...\scripts\bridge.js" see "某张图.png" --ask "图里写了什么"`，能返回描述即成功。
 
 ## License
 
