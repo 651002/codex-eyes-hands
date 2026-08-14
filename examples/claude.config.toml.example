@@ -1,0 +1,27 @@
+# 备用通道配置模板
+# 复制为 C:\Users\<你的用户名>\.codex\claude.config.toml
+# 注意：把 base_url 换成你自己的中转/Claude 兼容地址（responses 格式），model 换成中转支持的模型
+
+model_provider = "claude"
+model = "claude-sonnet-5"
+model_reasoning_effort = "high"
+
+[model_providers.claude]
+name = "claude-backup"
+base_url = "https://YOUR-RELAY-EXAMPLE.COM"
+wire_api = "responses"
+env_key = "ANTHROPIC_AUTH_TOKEN"
+
+# 另外，必须把同名 provider 也注册进主配置 ~/.codex/config.toml：
+# 因为 `codex exec resume` 不加载 profile 文件（-p 参数不受支持），
+# 脚本在 resume 场景改用 -c model_provider="claude" 覆盖，需要主配置里存在该 provider。
+#
+# [model_providers.claude]
+# name = "claude-backup"
+# base_url = "https://YOUR-RELAY-EXAMPLE.COM"
+# wire_api = "responses"
+# env_key = "ANTHROPIC_AUTH_TOKEN"
+#
+# 密钥（ANTHROPIC_AUTH_TOKEN）不需要写进任何文件：
+# 脚本运行时自动从 CC Switch 数据库（~/.cc-switch/cc-switch.db）里
+# 读取「未被 codex 通道共用的」Claude 通道 key，并以环境变量注入。

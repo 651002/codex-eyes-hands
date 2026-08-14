@@ -1,0 +1,7 @@
+node_modules/
+*.log
+*.jsonl
+codex-bridge-out-*.txt
+codex-bridge-err-*.log
+codex-bridge-ev-*.jsonl
+codex-bridge-watch-*
