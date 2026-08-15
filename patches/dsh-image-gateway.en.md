@@ -1,22 +1,45 @@
 [中文](dsh-image-gateway.md) | English
 
-# DSH Image Gateway Patch (optional, for DeepSeek Harness users)
+# DSH Attachment Gateway Patch (optional, for DeepSeek Harness users)
+
+v1.2.1: supports **images + arbitrary files** (zip/exe/pdf/docx/…) — every attachment is materialized
+to a file and its absolute path is injected into the agent message as text.
 
 ## Background
 
 When a Harness agent runs a text-only model (`inputModalities` without `image`), the `prompt`
-handler of `dsh-host-apiproxy` rejects image messages with `MODEL_DOES_NOT_SUPPORT_IMAGES`,
-and the client shows "current model does not support images" — the image never reaches the agent.
+handler of `dsh-host-apiproxy` rejects image messages with `MODEL_DOES_NOT_SUPPORT_IMAGES`, and
+the client shows "current model does not support images". Besides, the Web client's attachment
+whitelist only allows 4 image types (PNG/JPG/WebP/GIF); any other file triggers
+"Only PNG, JPG, WebP, and GIF images are supported".
 
 ## Idea
 
-Don't feed the image to the model. Instead: **materialize the image to a file and inject its
-absolute path into the message as a text block**, so the agent can hand the path to the
-codex-bridge `see` mode (local Codex CLI image analysis).
+Don't feed the attachment to the model. Instead: **materialize it to a file and inject its absolute
+path into the message as a text block**, so the agent can hand the path to codex-bridge
+(`see` for images / `read` for files / pwsh to extract and analyze).
 
-## File to change
+- Images → `%TEMP%\dsh-incoming-images\<uuid>.<ext>` (the conversation still shows a thumbnail)
+- Other files → `%TEMP%\dsh-incoming-files\<uuid>-<original name>` (name sanitized, extension mapped)
 
-`node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js` (the package ships as a bundle; edit this file directly).
+## Files to change
+
+1. `node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js` (gateway, required)
+2. `node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js` (adapter, optional but recommended: thumbnails in history)
+3. `node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js` (client, required: lifts the attachment whitelist)
+
+All three are shipped bundles — edit them directly. **One-click script** at `patches/apply-dsh-gateway-patch.js`:
+
+```bash
+node patches/apply-dsh-gateway-patch.js \
+  <dsh>/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js \
+  <dsh>/node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js \
+  <dsh>/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+```
+
+The script is idempotent (skips already-patched parts), backs up every file, and rolls back on any mismatch.
+
+## Gateway changes
 
 ### 1. Add `writeFile`, `join`, `tmpdir` to the top imports
 
@@ -26,60 +49,7 @@ import { dirname, extname, join } from "node:path";
 import { release, tmpdir } from "node:os";
 ```
 
-### 2. Add the `materializeImageContent` function (right after `durablePromptContent`)
-
-```js
-/** Extension for an image media type, used when materializing to disk. */
-function imageExtension(mediaType) {
-	switch (mediaType) {
-		case "image/png": return ".png";
-		case "image/jpeg": return ".jpg";
-		case "image/webp": return ".webp";
-		case "image/gif": return ".gif";
-		default: return "";
-	}
-}
-/**
- * Materialize image parts to on-disk files and rewrite them as text pointers.
- * A model that cannot accept image input must never receive an image part.
- */
-async function materializeImageContent(ctx, content) {
-	const dir = join(tmpdir(), "dsh-incoming-images");
-	await mkdir(dir, { recursive: true });
-	const blocks = [];
-	for (const part of content) {
-		if (part.type === "text") {
-			blocks.push({ type: "text", text: part.text });
-			continue;
-		}
-		const file = join(dir, `${randomUUID()}${imageExtension(part.mediaType)}`);
-		const data = decodeBase64(part.data);
-		await writeFile(file, data);
-		const name = part.name === void 0 ? file : part.name;
-		let attachment;
-		try {
-			attachment = await ctx.attachments.saveImage({
-				data,
-				mediaType: part.mediaType,
-				...part.name === void 0 ? {} : { name: part.name }
-			});
-		} catch { /* UI 展示失败不影响主流程 */ }
-		if (attachment !== void 0) blocks.push({ type: "image", attachment });
-		blocks.push({
-			type: "text",
-			text: [
-				"[图片附件] 用户在本条消息附带了一张图片（当前模型无法直接查看图片内容）。",
-				`原始文件名: ${name}`,
-				`本地文件绝对路径: ${file}`,
-				"请用 codex-bridge 技能调用本机 codex CLI 分析该图片文件，拿到文字结果后再回答用户。"
-			].join("\n")
-		});
-	}
-	return blocks;
-}
-```
-
-### 3. In the `prompt` handler: replace "reject" with "route by model capability"
+### 2. In the `prompt` handler: replace "reject" with "route by model capability"
 
 Before:
 
@@ -117,6 +87,30 @@ const message = createUserMessage({
 });
 ```
 
+### 3. Widen the prompt schema (v1.2.1)
+
+In `promptContentPartSchema`, the image part's `mediaType` goes from the 4-image whitelist to any
+string — otherwise the RPC layer rejects non-image files outright:
+
+```js
+// before
+mediaType: imageMediaTypeSchema,
+// after
+mediaType: z$1.string(),
+```
+
+### 4. Add `materializeImageContent` (v1.2.1 version: images + files)
+
+See `FUNC_BLOCK` in `apply-dsh-gateway-patch.js` for the full ~100-line block (with the
+`imageExtension` / `fileExtension` / `sanitizeFileName` helpers). Key points:
+
+- Image parts: written to `%TEMP%\dsh-incoming-images\`, keep the `saveImage` attachment block
+  (UI thumbnail) plus the injected path text;
+- Non-image parts: written to `%TEMP%\dsh-incoming-files\<uuid>-<sanitized original name>`,
+  **no** image attachment block, only the path text;
+- Extension: the original file name's extension wins, otherwise the MIME map
+  (zip/7z/rar/tar/gz/pdf/txt/md/json/xml/csv/docx/xlsx/pptx/apk/bin…).
+
 ## Showing image thumbnails in the conversation (optional, recommended)
 
 The patch above keeps the image block in the message (saved to the attachment store), but the
@@ -136,17 +130,34 @@ function flattenText(blocks) {
 // 		assertTextOnly(message.content);
 ```
 
-After that: sending an image → the user message shows an **image thumbnail** plus the path text →
-the agent analyzes it via Codex → answers normally.
+## Client changes (v1.2.1, required)
+
+File: `node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js` — served through the
+`/plugins/<id>/client.js` route with `no-cache`, so **a page refresh** applies it; no rebuild needed.
+
+1. `imageMediaType`: pass through non-image MIME types (empty MIME becomes
+   `application/octet-stream`) instead of throwing `UnsupportedImageMediaTypeError`
+   (the source of the "Only PNG, JPG, WebP, and GIF images are supported" toast);
+2. `browserDraftAttachment`: non-image attachments get an SVG file-icon data URL thumbnail
+   (images keep object URLs);
+3. `intakeImages`: 100MB cap for non-image files;
+4. Attachment rail `onOpen`: don't open the image lightbox for non-image attachments.
 
 ## Taking effect
 
-The file is bundled JS and is loaded into memory at process start — **restart `dsh web`** to apply.
-After the restart, sending an image works like this: image → saved under `%TEMP%\dsh-incoming-images\`
-→ the path enters the agent message as text → the agent analyzes it with codex-bridge `see` → answers you.
+- Gateway/adapter (server side): **restart `dsh web`**.
+- Client: refresh the browser page.
+
+After that:
+
+- Sending an image → `%TEMP%\dsh-incoming-images\` → thumbnail in history + path text →
+  the agent analyzes it via codex-bridge `see`.
+- Sending a file → `%TEMP%\dsh-incoming-files\` (original name kept) → path text →
+  the agent extracts/reads/analyzes it via pwsh or codex-bridge `read`/`see`.
 
 ## Notes
 
-- `%TEMP%\dsh-incoming-images\` accumulates; clean it periodically with the codex-bridge `clean` mode.
+- `%TEMP%\dsh-incoming-images\` and `%TEMP%\dsh-incoming-files\` accumulate; clean them
+  periodically with the codex-bridge `clean` mode.
 - Vision models are unaffected (they still use the original `durablePromptContent` attachment path).
-- A package upgrade (`npm install` of the dsh packages) overwrites this file — re-apply the patch.
+- A package upgrade (`npm install` of the dsh packages) overwrites these files — re-apply the patch.

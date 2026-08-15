@@ -16,7 +16,7 @@ the local Codex CLI (Codex desktop app, other agent frameworks).
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
-![Release](https://img.shields.io/badge/Release-v1.2.0-cyan)
+![Release](https://img.shields.io/badge/Release-v1.2.1-cyan)
 
 ## Capabilities
 
@@ -40,18 +40,21 @@ the local Codex CLI (Codex desktop app, other agent frameworks).
 
 ![architecture](docs/architecture.png)
 
-## Fixing: current model does not support images (DSH users: read this first)
+## Fixing: current model does not support images / can't send files (DSH users: read this first)
 
 A Harness agent running a text-only model (e.g. DeepSeek-V4-Pro) gets image messages rejected by
-the gateway ("current model does not support images") — the image never reaches the agent.
+the gateway ("current model does not support images") — the image never reaches the agent. The Web
+attachment whitelist also allows only 4 image types, so sending zip/exe/pdf shows "Only PNG, JPG,
+WebP, and GIF images are supported".
 
-**Fix**: patch `@deepseek-ai/dsh-host-apiproxy` — images are **materialized to files** and their
-**absolute paths are injected into the message as text**, so the agent can analyze them with the
-`see` mode. The conversation also shows **image thumbnails** (companion adapter patch in the patch doc).
+**Fix**: patch `@deepseek-ai/dsh-host-apiproxy` (gateway) + `dsh-client-ui-conversation` (client) —
+**images and arbitrary files are materialized to disk** and their **absolute paths are injected into
+the message as text**, so the agent can analyze images with the `see` mode and read files with the
+`read` mode or pwsh. The conversation also shows **image thumbnails** (companion adapter patch in the patch doc).
 
 - Patch reference: [patches/dsh-image-gateway.en.md](patches/dsh-image-gateway.en.md)
 - **One-click patch script**: [patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
-  (auto backup + verification + rollback; see the usage comment at the top; restart `dsh web` afterwards)
+  (auto backup + verification + rollback; see the usage comment at the top; restart `dsh web` and refresh the page afterwards)
 
 ## Requirements
 

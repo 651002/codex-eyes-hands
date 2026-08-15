@@ -1,21 +1,42 @@
 [English](dsh-image-gateway.en.md) | 中文
 
-# DSH 图片网关补丁（可选，供 DeepSeek Harness 用户）
+# DSH 附件网关补丁（可选，供 DeepSeek Harness 用户）
+
+v1.2.1：支持**图片 + 任意文件**（zip/exe/pdf/docx/…）上传，全部落地成文件、以路径文本注入 agent 消息。
 
 ## 背景
 
 DSH 的 agent 若使用无视觉模型（`inputModalities` 不含 `image`），用户在 Web 里发图片时，
 `dsh-host-apiproxy` 的 `prompt` 处理器会直接返回 `MODEL_DOES_NOT_SUPPORT_IMAGES`，
 客户端弹「当前模型不支持图片」，图片根本到不了 agent。
+而 Web 客户端的附件白名单只有 4 种图片（PNG/JPG/WebP/GIF），发其他文件会弹「仅支持 PNG、JPG、WebP、GIF 格式的图片」。
 
 ## 思路
 
-不把图片喂给模型。改为：**图片落地成文件 + 把绝对路径以文本块注入消息**，
-agent 拿到路径后交给 codex-bridge 的 `see` 模式（本机 Codex CLI 挂图分析）。
+不把附件喂给模型。改为：**附件落地成文件 + 把绝对路径以文本块注入消息**，
+agent 拿到路径后交给 codex-bridge（`see` 看图 / `read` 读文件 / pwsh 解压分析）。
+
+- 图片 → `%TEMP%\dsh-incoming-images\<uuid>.<扩展名>`（对话记录仍显示缩略图）
+- 其他文件 → `%TEMP%\dsh-incoming-files\<uuid>-<原始文件名>`（文件名消毒 + 扩展名映射，防路径穿越）
 
 ## 改动文件
 
-`node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js`（该包发布为打包产物，直接改这个文件即可）。
+1. `node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js`（网关，必须）
+2. `node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js`（适配器，可选，推荐：对话记录显示图片缩略图）
+3. `node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js`（客户端，必须：放开附件白名单）
+
+三个文件都是打包产物，直接改即可。**一键脚本**见仓库 `patches/apply-dsh-gateway-patch.js`：
+
+```bash
+node patches/apply-dsh-gateway-patch.js ^
+  <dsh>/node_modules/@deepseek-ai/dsh-host-apiproxy/lib/index.js ^
+  <dsh>/node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js ^
+  <dsh>/node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js
+```
+
+脚本幂等（重复执行自动跳过已打部分）、自动备份、失败自动回滚。
+
+## 网关改动明细
 
 ### 1. 顶部 import 增加 `writeFile`、`join`、`tmpdir`
 
@@ -25,60 +46,7 @@ import { dirname, extname, join } from "node:path";
 import { release, tmpdir } from "node:os";
 ```
 
-### 2. 新增 `materializeImageContent` 函数（放在 `durablePromptContent` 定义之后）
-
-```js
-/** Extension for an image media type, used when materializing to disk. */
-function imageExtension(mediaType) {
-	switch (mediaType) {
-		case "image/png": return ".png";
-		case "image/jpeg": return ".jpg";
-		case "image/webp": return ".webp";
-		case "image/gif": return ".gif";
-		default: return "";
-	}
-}
-/**
- * Materialize image parts to on-disk files and rewrite them as text pointers.
- * A model that cannot accept image input must never receive an image part.
- */
-async function materializeImageContent(ctx, content) {
-	const dir = join(tmpdir(), "dsh-incoming-images");
-	await mkdir(dir, { recursive: true });
-	const blocks = [];
-	for (const part of content) {
-		if (part.type === "text") {
-			blocks.push({ type: "text", text: part.text });
-			continue;
-		}
-		const file = join(dir, `${randomUUID()}${imageExtension(part.mediaType)}`);
-		const data = decodeBase64(part.data);
-		await writeFile(file, data);
-		const name = part.name === void 0 ? file : part.name;
-		let attachment;
-		try {
-			attachment = await ctx.attachments.saveImage({
-				data,
-				mediaType: part.mediaType,
-				...part.name === void 0 ? {} : { name: part.name }
-			});
-		} catch { /* UI 展示失败不影响主流程 */ }
-		if (attachment !== void 0) blocks.push({ type: "image", attachment });
-		blocks.push({
-			type: "text",
-			text: [
-				"[图片附件] 用户在本条消息附带了一张图片（当前模型无法直接查看图片内容）。",
-				`原始文件名: ${name}`,
-				`本地文件绝对路径: ${file}`,
-				"请用 codex-bridge 技能调用本机 codex CLI 分析该图片文件，拿到文字结果后再回答用户。"
-			].join("\n")
-		});
-	}
-	return blocks;
-}
-```
-
-### 3. `prompt` 处理器：把「拒绝」改成「按模型能力分流」
+### 2. `prompt` 处理器：把「拒绝」改成「按模型能力分流」
 
 改前：
 
@@ -116,6 +84,27 @@ const message = createUserMessage({
 });
 ```
 
+### 3. 放宽 prompt schema（v1.2.1）
+
+`promptContentPartSchema` 里图片 part 的 `mediaType` 从「4 种图片白名单」放宽为任意字符串，
+否则非图片文件会被 RPC 层直接拒绝：
+
+```js
+// 改前
+mediaType: imageMediaTypeSchema,
+// 改后
+mediaType: z$1.string(),
+```
+
+### 4. 新增 `materializeImageContent`（v1.2.1 版，图片 + 文件）
+
+完整代码见 `apply-dsh-gateway-patch.js` 的 `FUNC_BLOCK`（约 100 行，含 `imageExtension` /
+`fileExtension` / `sanitizeFileName` 三个辅助函数）。要点：
+
+- 图片 part：写 `%TEMP%\dsh-incoming-images\`，保留 `saveImage` 附件块（UI 缩略图）+ 注入路径文本；
+- 非图片 part：写 `%TEMP%\dsh-incoming-files\<uuid>-<消毒后的原始文件名>`，**不**建图片附件块，只注入路径文本；
+- 扩展名：原始文件名的扩展名优先，否则按 MIME 映射（zip/7z/rar/tar/gz/pdf/txt/md/json/xml/csv/docx/xlsx/pptx/apk/bin…）。
+
 ## 让对话记录显示图片缩略图（可选，推荐）
 
 上面的补丁会让消息里**保留图片块**（存入附件库），但 `dsh-llm-deepseek` 适配器遇到图片块会直接报错。
@@ -134,16 +123,30 @@ function flattenText(blocks) {
 // 		assertTextOnly(message.content);
 ```
 
-打完后：发图 → 对话记录里用户消息显示**图片缩略图** + 路径文本 → agent 调 codex 看图 → 正常回答。
+## 客户端改动明细（v1.2.1，必须）
+
+文件：`node_modules/@deepseek-ai/dsh-client-ui-conversation/lib/client.js`（该文件经 `/plugins/<id>/client.js`
+路由 no-cache 现读，改完**刷新页面**即可生效，无需重新构建）
+
+1. `imageMediaType`：非图片 MIME 放行（空 MIME 按 `application/octet-stream`），不再抛
+   `UnsupportedImageMediaTypeError`（这就是「仅支持 PNG、JPG、WebP、GIF 格式的图片」弹窗的来源）；
+2. `browserDraftAttachment`：非图片附件用 SVG 文件图标 data URL 当缩略图（图片仍用对象 URL）；
+3. `intakeImages`：非图片文件 100MB 上限（超限提示）；
+4. 附件栏 `onOpen`：非图片附件不弹图片灯箱。
 
 ## 生效
 
-该文件是打包 JS、进程启动时已加载到内存，改完需要**重启 `dsh web`** 才生效。
-重启后发图：图片 → 落到 `%TEMP%\dsh-incoming-images\` → 路径以文本进入 agent 消息
-→ agent 用 codex-bridge `see` 调 Codex 看图 → 回答用户。
+- 网关/适配器（服务端）：重启 `dsh web` 生效。
+- 客户端：刷新浏览器页面生效。
+
+重启/刷新后：
+
+- 发图：图片 → `%TEMP%\dsh-incoming-images\` → 对话显示缩略图 + 路径文本 → agent 用 codex-bridge `see` 看图。
+- 发文件：文件 → `%TEMP%\dsh-incoming-files\`（保留原始文件名）→ 路径文本 → agent 用 pwsh / codex-bridge
+  `read`、`see` 解压、读取、分析后回答。
 
 ## 注意事项
 
-- `%TEMP%\dsh-incoming-images\` 会累积旧图，可用 codex-bridge 的 `clean` 模式定期清理。
+- `%TEMP%\dsh-incoming-images\`、`%TEMP%\dsh-incoming-files\` 会累积旧文件，可用 codex-bridge 的 `clean` 模式定期清理。
 - 视觉模型不受影响（仍走原来的 `durablePromptContent` 附件存储路径）。
-- 版本更新（`npm install` 升级 dsh 包）后该文件会被覆盖，需重打补丁。
+- 版本更新（`npm install` 升级 dsh 包）后这些文件会被覆盖，需重打补丁。

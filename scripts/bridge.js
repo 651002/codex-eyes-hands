@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 
 const VISION_PROMPT = '仔细看这张图：详细描述画面内容，逐字转写所有可见文字（标题、正文、按钮、代码、数字、菜单等）；如果是图表/流程图/UI/文档，说明其结构和数据。不要调用任何工具或执行命令，直接输出分析结果。';
 const READ_PROMPT = '请自己想办法查看这个目标（解压压缩包、列目录、读取文本、必要时转换格式或提取二进制里的字符串），用中文总结：1) 里面有什么（文件清单/结构）；2) 重点内容。可以做只读性质的 shell 操作，不要修改原文件、不要做破坏性操作。最后直接输出总结。';
@@ -765,7 +765,7 @@ function searchMode(query, opts) {
 function cleanMode(hours) {
   const ageMs = (hours || 24) * 3600 * 1000;
   let removed = 0;
-  for (const dir of [path.join(os.tmpdir(), 'dsh-incoming-images'), path.join(os.tmpdir(), 'dsh-shots')]) {
+  for (const dir of [path.join(os.tmpdir(), 'dsh-incoming-images'), path.join(os.tmpdir(), 'dsh-incoming-files'), path.join(os.tmpdir(), 'dsh-shots')]) {
     if (!fs.existsSync(dir)) continue;
     try {
       for (const f of fs.readdirSync(dir)) {

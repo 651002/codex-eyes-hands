@@ -13,7 +13,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
-![Release](https://img.shields.io/badge/Release-v1.2.0-cyan)
+![Release](https://img.shields.io/badge/Release-v1.2.1-cyan)
 
 ## 能力一览
 
@@ -37,18 +37,20 @@
 
 ![架构图](docs/architecture.png)
 
-## 解决：当前模型不支持图片（DSH 用户先看这节）
+## 解决：当前模型不支持图片 / 发不了文件（DSH 用户先看这节）
 
 Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web 里发图片会被网关拒绝
-（弹「当前模型不支持图片」），图片根本到不了 agent。
+（弹「当前模型不支持图片」），图片根本到不了 agent。Web 附件的白名单也只有 4 种图片，
+发 zip/exe/pdf 等文件会弹「仅支持 PNG、JPG、WebP、GIF 格式的图片」。
 
-**解法**：给 `@deepseek-ai/dsh-host-apiproxy` 打一个小补丁——把图片**落地成文件**、把**绝对路径
-以文本**注入 agent 消息，之后 agent 就能用本技能的 `see` 模式调 Codex 看图了。
+**解法**：给 `@deepseek-ai/dsh-host-apiproxy`（网关）+ `dsh-client-ui-conversation`（客户端）打一个小补丁——
+把**图片和任意文件落地成文件**、把**绝对路径以文本**注入 agent 消息，之后 agent 就能用本技能的
+`see` 模式调 Codex 看图、用 `read` 模式或 pwsh 读文件了。
 **对话记录里还会显示图片缩略图**（配套的适配器小补丁见补丁文档）。
 
 - 补丁说明：[patches/dsh-image-gateway.md](patches/dsh-image-gateway.md)
 - **一键补丁脚本**：[patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)
-  （自动备份 + 校验 + 回滚，用法见文件头部注释；改完重启 dsh web 生效）
+  （自动备份 + 校验 + 回滚，用法见文件头部注释；改完重启 dsh web、刷新页面生效）
 
 ## 前置要求
 

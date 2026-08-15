@@ -125,7 +125,7 @@ node "...\scripts\bridge.js" steer "<纠正指令>"                      # 自�
 - **shot ["问题"]**：截当前主屏幕（PowerShell 截屏）→ **直连视觉分析**（默认 low 思考，快）。不传问题则默认「描述屏幕上有什么」。这变相绕开了 computer_use 读屏幕被拒的限制（**看**可以，**点**还不行）。截图存 `%TEMP%\dsh-shots\`。
 - **fetch <url>**：抓取网页正文并总结（curl / Invoke-WebRequest）。适合我无法直接抓的网页。
 - **search "<问题>"**：codex 官方联网搜索（`--search`），回答带来源。适合需要时效性信息的检索。
-- **clean [小时]**：清理 `%TEMP%\dsh-incoming-images\`、`%TEMP%\dsh-shots\` 里超过阈值的旧文件，以及 1 小时以上的 codex-bridge 临时文件（自动跳过活跃 watch 的文件）。
+- **clean [小时]**：清理 `%TEMP%\dsh-incoming-images\`、`%TEMP%\dsh-incoming-files\`、`%TEMP%\dsh-shots\` 里超过阈值的旧文件，以及 1 小时以上的 codex-bridge 临时文件（自动跳过活跃 watch 的文件）。
 - **open <目标>**：打开系统位置/应用/路径（别名：回收站/此电脑/我的电脑/控制面板/任务管理器/记事本/计算器/设置/资源管理器/下载/桌面/文档/图片，或任意路径、网址、应用名）。打开后自动**验货**：报告 PID + 窗口标题 + 置前结果（置前失败说明用户在前台用电脑，Windows 拦后台抢焦点，让用户点任务栏即可）。
 - **原则（重要）**：系统级操作（开回收站/文件夹/应用/网址）**优先用 `open` 的 shell 命令**，不要先想着 `click`/`locate`/computer_use——鼠标只留给「应用窗口内部 UI 元素」这类 shell 干不了的活。
 
@@ -221,6 +221,7 @@ Get-Content "$env:TEMP\codex-bridge-result.txt" -Raw -Encoding UTF8
 ## 边界与注意
 
 - 图片附件由网关落地到 `%TEMP%\dsh-incoming-images\`，路径会以文本注入我的消息（「本地文件绝对路径:」行）；该目录会累积，偶尔可清理旧文件。
+- 非图片文件附件（zip/exe/pdf/任意类型，≤100MB）由网关落地到 `%TEMP%\dsh-incoming-files\<uuid>-<原始文件名>`，同样以「本地文件绝对路径:」文本注入；我用 pwsh / codex-bridge 的 read、see 模式读取、解压、分析后回答。
 - 路径含空格/中文：交给脚本即可（内部用参数数组，无引号坑）；裸命令则整体双引号包裹。
 - 绝不编造 codex 没返回的内容；codex 失败就如实说失败。
 
@@ -264,4 +265,5 @@ Get-Content "$env:TEMP\codex-bridge-result.txt" -Raw -Encoding UTF8
 - shot 直连 ✅：截屏+直连分析（low 档），比旧 codex exec 路径快数倍（中转慢时仍受波动影响）
 - key {LWIN} 组合 / click --verify / --double：已实现，未实测（影响用户前台，留待用户配合测试）
 - search 链接解码 ✅（2026-08-15）：Bing 重定向 u= 参数需先剥 `a1` 前缀再 base64url 解码；摘要抓取正则修复（`<p>` 需非可选分支）；open 标题匹配改中英双语正则（本机记事本标题是英文 "Notepad"）
-- QQ 发消息 ✅（2026-08-15，指挥官模式实战）：`watch --backend computer --bypass` 成功定位 QQ → 唯一联系人「某好友」→ 输入「你好」→ 发送并自验（聊天记录 14:49 出现「你好」；当时用旧规则停发等确认，现已改为全权直发不确认）。**关键突破**：computer_use 对 QQ 等应用默认弹「Allow Codex to use QQ?」批准窗，CLI 无 UI 会 fail-closed 拒绝；`--bypass`（--dangerously-bypass-approvals-and-sandbox）可绕过该批准弹窗；resume（steer）需重新带上 --enable computer_use + bypass（已自动持久化在 watch 状态里）。
+- QQ 发消息 ✅（2026-08-15，指挥官模式实战）：`watch --backend computer --bypass` 成功定位 QQ → 唯一联系人「空客」→ 输入「你好」→ 发送并自验（聊天记录 14:49 出现「你好」；当时用旧规则停发等确认，现已改为全权直发不确认）。**关键突破**：computer_use 对 QQ 等应用默认弹「Allow Codex to use QQ?」批准窗，CLI 无 UI 会 fail-closed 拒绝；`--bypass`（--dangerously-bypass-approvals-and-sandbox）可绕过该批准弹窗；resume（steer）需重新带上 --enable computer_use + bypass（已自动持久化在 watch 状态里）。
+- DSH 文件附件 ✅（2026-08-15）：Web 端「仅支持 PNG/JPG/WebP/GIF」两道闸门（前端 MIME 白名单 + 网关 RPC schema）全打通——任意文件（≤100MB）落地 `%TEMP%\dsh-incoming-files\`（保留原始文件名 + 扩展名映射 + 名称消毒），路径文本注入 agent；客户端非图片附件显示 SVG 文件图标缩略图；补丁脚本 v2 三条路径（全新/升级/幂等跳过）自测通过（升级后与线上文件逐字节一致）。
