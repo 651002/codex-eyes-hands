@@ -20,15 +20,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 const VISION_PROMPT = '仔细看这张图：详细描述画面内容，逐字转写所有可见文字（标题、正文、按钮、代码、数字、菜单等）；如果是图表/流程图/UI/文档，说明其结构和数据。不要调用任何工具或执行命令，直接输出分析结果。';
 const READ_PROMPT = '请自己想办法查看这个目标（解压压缩包、列目录、读取文本、必要时转换格式或提取二进制里的字符串），用中文总结：1) 里面有什么（文件清单/结构）；2) 重点内容。可以做只读性质的 shell 操作，不要修改原文件、不要做破坏性操作。最后直接输出总结。';
 
 const DEFAULT_RULES = [
   '只在任务指定的范围内操作，不要动范围外的任何文件。',
-  '不得删除、覆盖任何已有文件；不得修改系统设置；不得安装软件。',
-  '任何删除/覆盖/系统修改/安装类动作，必须先停下来，说明理由并等待监督者批准。',
+  '不得删除、覆盖任何与任务无关的已有文件；不得修改系统设置；不得安装软件。（保护性红线，只防破坏，不阻断任务本身）',
+  '用户已全权授权：任务要求一次性执行到完成并汇报结果；除上面的保护性红线外，不要中途停下询问确认——包括发送消息、点击按钮、输入内容这类操作，一律直接执行。',
+  '命令优先：能用命令行、脚本、键盘快捷键完成的操作，一律先用命令/快捷键；只有确实需要 GUI 鼠标交互时才用 computer_use。',
   '先输出 1-3 行计划再动手；每完成一步，用一句话报告进度。',
   '同一个报错不要用同一种方式重试超过两次；换个思路，或报告卡点。'
 ].join('\n');
@@ -40,7 +41,7 @@ const HELP = `codex-bridge — 调用本机 Codex CLI 当眼睛和手
 模式:
   see   <图片路径...> [--ask "用户问题"]  看图 / 多图对比
   read  <路径> [--ask "用户问题"]         解读压缩包/文件夹/特殊格式
-  ask   "<追问>"                          复用上一个 codex 会话追问（省 token）
+  ask   "<追问>" [--for see|read|other]     复用会话追问（默认最近会话；--for 指定同类会话）
   gen   "<画什么的描述>" [--out <目录>]   生成图片
   hands <browser|computer> "<任务>"       浏览器/GUI 操作（权限受限，半通）
   watch "<任务>" [--rules "<额外红线>"]   监督模式：后台启动 codex，事件流写入文件供监督
@@ -59,7 +60,7 @@ const HELP = `codex-bridge — 调用本机 Codex CLI 当眼睛和手
   ocr <图片>                             逐块 OCR（带坐标 JSON）
   click <x> <y> [--button right]         点击屏幕坐标（默认 3 秒延迟；动真实鼠标，先经用户确认）
   scroll <格数>                          滚轮滚动（正=上，负=下）
-  open <目标>                            打开系统位置/应用/路径（回收站/此电脑/控制面板/下载…；打开后验货：PID+置前）
+  open <目标>                            打开系统位置/应用/路径（回收站/此电脑/控制面板/任务管理器/记事本/设置/下载…；验货：PID+置前）
 
 选项:
   --effort minimal|low|medium|high|xhigh|max|ultra   思考强度，默认 ultra（最高档）
@@ -70,7 +71,9 @@ const HELP = `codex-bridge — 调用本机 Codex CLI 当眼睛和手
   --target "<元素>"          locate 模式的目标元素描述
   --button left|right        click 模式的按键（默认左键）
   --double                   click 模式双击
+  --verify                   click 模式：点击前截屏 + 直连识别前台应用（防屏幕状态漂移）
   --backend computer|browser watch 模式：启用 computer_use / browser_use（指挥官模式）
+  --bypass                   watch 模式：绕过 computer_use 的批准弹窗（QQ 等应用必需；仍受 codex 红线约束）
   --delay <秒>               type/key 发送按键前的延迟，默认 3
   --window <标题开头或PID>    type/key 的目标窗口（必填；聚焦失败则取消发送）
   --model <模型id>           覆盖默认模型
@@ -102,7 +105,10 @@ function parseArgs(argv) {
     else if (a === '--direct') opts.direct = argv[++i];
     else if (a === '--button') opts.button = argv[++i];
     else if (a === '--double') opts.double = true;
+    else if (a === '--verify') opts.verify = true;
+    else if (a === '--for') opts.for = argv[++i];
     else if (a === '--backend') opts.backend = argv[++i];
+    else if (a === '--bypass') opts.bypass = true;
     else if (a === '--help' || a === '-h') { console.log(HELP); process.exit(0); }
     else if (a === '--version' || a === '-V') { console.log(`codex-bridge v${VERSION}`); process.exit(0); }
     else positionals.push(a);
@@ -166,7 +172,7 @@ function buildArgs(mode, positionals, opts) {
     case 'gen':
       return ['exec', prompt, '--enable', 'image_generation', '-s', 'workspace-write', '--skip-git-repo-check', '--color', 'never', ...effort];
     case 'ask': {
-      const tid = readLastThread();
+      const tid = readLastThread(opts.for || 'auto');
       if (tid) return ['exec', 'resume', tid, prompt, '--skip-git-repo-check', ...effort];
       return ['exec', 'resume', '--last', prompt, '--skip-git-repo-check', ...effort];
     }
@@ -217,7 +223,7 @@ function execOnce(args, opts, extraEnv) {
       fs.unlinkSync(evFile);
     }
   } catch { /* ignore */ }
-  if (threadId) saveLastThread(threadId);
+  if (threadId) saveLastThread(threadId, opts.threadCategory);
 
   let text = null;
   try {
@@ -237,12 +243,19 @@ function execOnce(args, opts, extraEnv) {
 }
 
 const LAST_THREAD_FILE = path.join(os.tmpdir(), 'codex-bridge-last-thread.txt');
-function saveLastThread(id) {
-  try { fs.writeFileSync(LAST_THREAD_FILE, String(id), 'utf8'); } catch { /* ignore */ }
+function threadFileFor(cat) {
+  return path.join(os.tmpdir(), `codex-bridge-last-thread-${cat || 'other'}.txt`);
 }
-function readLastThread() {
+function saveLastThread(id, cat) {
   try {
-    const v = fs.readFileSync(LAST_THREAD_FILE, 'utf8').trim();
+    fs.writeFileSync(LAST_THREAD_FILE, String(id), 'utf8');
+    if (cat) fs.writeFileSync(threadFileFor(cat), String(id), 'utf8');
+  } catch { /* ignore */ }
+}
+function readLastThread(cat) {
+  try {
+    const file = cat && cat !== 'auto' ? threadFileFor(cat) : LAST_THREAD_FILE;
+    const v = fs.readFileSync(file, 'utf8').trim();
     return v || null;
   } catch { return null; }
 }
@@ -509,8 +522,9 @@ ${rules}
 工作方式：
 1. 先用 1-3 行列出计划。
 2. 逐步执行，每完成一步用一句话报告进度。
-3. 遇到需要删除/覆盖/改系统设置/安装的情况，停下来说明并等待批准。
-4. 任务完成后，输出一段总结：做了什么、结果在哪、有没有异常。`;
+3. 用户已全权授权：不要中途停下来询问确认，一次性执行到完成（保护性红线除外）。
+4. 提速要求：优先用键盘快捷键和最短路径，避免反复整屏截图探索；涉及常用应用（QQ 等）先读技能目录下的 ui-playbook.md 找现成操作路径。
+5. 任务完成后，输出一段总结：做了什么、结果在哪、有没有异常。`;
 }
 
 function watchTask(task, rules, opts) {
@@ -524,6 +538,7 @@ function watchTask(task, rules, opts) {
   if (opts.model) args.push('-m', opts.model);
   if (opts.backend === 'computer') args.push('--enable', 'computer_use');
   if (opts.backend === 'browser') args.push('--enable', 'browser_use');
+  if (opts.bypass) args.push('--dangerously-bypass-approvals-and-sandbox');
 
   const outFd = fs.openSync(eventsFile, 'w');
   const errFd = fs.openSync(errFile, 'w');
@@ -549,6 +564,8 @@ function watchTask(task, rules, opts) {
     task,
     rules: rules || DEFAULT_RULES,
     effort: opts.effort,
+    backend: opts.backend,
+    bypass: !!opts.bypass,
     stopped: false
   };
   writeState(state);
@@ -647,6 +664,9 @@ function steerWatch(correction, opts) {
   if (!s.threadId) { console.log('状态里没有 thread id，无法续跑'); return; }
   const prompt = `${correction}\n\n继续完成剩余任务，遵守之前的红线。完成后输出总结。`;
   const args = ['exec', 'resume', s.threadId, prompt, '--skip-git-repo-check', '-c', `model_reasoning_effort="${opts.effort}"`];
+  if (s.backend === 'computer') args.push('--enable', 'computer_use');
+  if (s.backend === 'browser') args.push('--enable', 'browser_use');
+  if (s.bypass) args.push('--dangerously-bypass-approvals-and-sandbox');
   const { text, exit, errTail } = runCodexSync(args, opts);
   if (text) console.log(text);
   else {
@@ -671,22 +691,15 @@ function takeScreenshot(dest) {
   return fs.existsSync(dest) && r.status === 0;
 }
 
-function shotMode(question, opts) {
+async function shotMode(question, opts) {
   const dir = path.join(os.tmpdir(), 'dsh-shots');
   fs.mkdirSync(dir, { recursive: true });
   const shotPath = path.join(dir, `shot-${Date.now()}.png`);
   if (!takeScreenshot(shotPath)) { console.error('[codex-bridge] 截图失败'); process.exit(5); }
   const prompt = `${question ? `用户问：${question}\n\n` : ''}${VISION_PROMPT}\n\n这是用户当前屏幕的截图。`;
-  const args = ['exec', prompt, '-i', shotPath, '-s', 'read-only', '--skip-git-repo-check', '--color', 'never', '-c', `model_reasoning_effort="${opts.effort}"`];
-  const { text, exit, errTail } = runCodexSync(args, opts);
-  if (text) {
-    console.log(text);
-    console.log(`[截图文件: ${shotPath}]`);
-  } else {
-    console.error(`[codex-bridge] shot 分析无结果（exit=${exit}）`);
-    if (errTail) console.error(`[codex-bridge] stderr 末尾:\n${errTail}`);
-    process.exit(4);
-  }
+  const r = await runVision(shotPath, prompt, { ...opts, effort: opts.effort === 'ultra' ? 'low' : opts.effort });
+  console.log(r.text);
+  console.log(`[截图文件: ${shotPath}]`);
 }
 
 function fetchMode(url, opts) {
@@ -701,16 +714,52 @@ function fetchMode(url, opts) {
   }
 }
 
+/** 解码 Bing 重定向链接（u= 参数是 base64url 编码的真实网址）。 */
+function decodeBingUrl(u) {
+  try {
+    const plain = String(u).replace(/&amp;/g, '&');
+    const m = /[?&]u=([^&]+)/.exec(plain);
+    if (!m) return plain;
+    let b64 = m[1].replace(/-/g, '+').replace(/_/g, '/');
+    if (b64.startsWith('a1')) b64 = b64.slice(2); // Bing 的 u= 值带 a1 前缀（URL 类型标记）
+    while (b64.length % 4) b64 += '=';
+    const real = Buffer.from(b64, 'base64').toString('utf8');
+    return real && real.startsWith('http') ? real : plain;
+  } catch { /* ignore */ }
+  return String(u).replace(/&amp;/g, '&');
+}
+
 function searchMode(query, opts) {
-  const prompt = `请联网搜索回答：${query}\n\n方法：用 curl 抓取搜索引擎结果页（先试 curl -s "https://html.duckduckgo.com/html/?q=<URL编码后的查询词>"，结果太少就换 curl -s "https://www.bing.com/search?q=<查询词>"），从返回的 HTML 里提取标题、摘要和链接。要求：1) 基于抓到的真实结果回答；2) 中文回答并注明来源链接；3) 若结果为空，如实说明。最后直接输出回答。`;
-  const args = ['exec', prompt, '-s', 'workspace-write', '--skip-git-repo-check', '--color', 'never', '-c', `model_reasoning_effort="${opts.effort}"`];
-  const { text, exit, errTail } = runCodexSync(args, opts);
-  if (text) console.log(text);
-  else {
-    console.error(`[codex-bridge] search 无结果（exit=${exit}）`);
-    if (errTail) console.error(`[codex-bridge] stderr 末尾:\n${errTail}`);
-    process.exit(4);
+  const q = encodeURIComponent(query);
+  const outFile = path.join(os.tmpdir(), `codex-bridge-s-${Date.now()}-${Math.random().toString(36).slice(2)}.html`);
+  const script = `$ErrorActionPreference='SilentlyContinue'; $h=@{'User-Agent'='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36'}; try { (Invoke-WebRequest -Uri 'https://www.bing.com/search?q=${q}' -UseBasicParsing -TimeoutSec 20 -Headers $h).Content | Out-File '${outFile.replace(/'/g, "''")}' -Encoding utf8 } catch { }; try { if (-not (Test-Path '${outFile.replace(/'/g, "''")}') -or (Get-Item '${outFile.replace(/'/g, "''")}' -ErrorAction SilentlyContinue).Length -lt 500) { (Invoke-WebRequest -Uri 'https://html.duckduckgo.com/html/?q=${q}' -UseBasicParsing -TimeoutSec 20 -Headers $h).Content | Out-File '${outFile.replace(/'/g, "''")}' -Encoding utf8 } } catch { }`;
+  spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: 90000, windowsHide: true });
+  let html = '';
+  try { if (fs.existsSync(outFile)) { html = fs.readFileSync(outFile, 'utf8').replace(/^\uFEFF/, ''); fs.unlinkSync(outFile); } } catch { /* ignore */ }
+  if (!html || html.length < 500) { console.error('[codex-bridge] 搜索无结果（抓取失败或本机网络受限）'); process.exit(4); }
+
+  const clean = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+  const results = [];
+  const bingRe = /<li class="b_algo"[\s\S]*?<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>(?:[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>)?[\s\S]*?<\/li>/g;
+  let m;
+  while ((m = bingRe.exec(html)) && results.length < 8) {
+    const title = clean(m[2]);
+    if (title) results.push({ title: title.slice(0, 120), url: decodeBingUrl(m[1]), snippet: clean(m[3]).slice(0, 200) });
   }
+  if (results.length === 0) {
+    const ddRe = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+    while ((m = ddRe.exec(html)) && results.length < 8) {
+      const title = clean(m[2]);
+      if (title) results.push({ title: title.slice(0, 120), url: m[1], snippet: clean(m[3]).slice(0, 200) });
+    }
+  }
+  if (results.length === 0) { console.error('[codex-bridge] 搜索无结果（解析不到结果条目）'); process.exit(4); }
+  console.log(`[搜索「${query}」结果]`);
+  results.forEach((r, i) => {
+    console.log(`${i + 1}. ${r.title}`);
+    console.log(`   ${r.url}`);
+    if (r.snippet) console.log(`   ${r.snippet}`);
+  });
 }
 
 function cleanMode(hours) {
@@ -750,13 +799,21 @@ function escapeSendKeys(text) {
   return String(text).replace(/([{}()[\]+\^%~])/g, (m) => `{${m}}`);
 }
 
-/** 原子操作：聚焦窗口 → 延迟 → 发按键。返回 0=成功 1=窗口不存在 其它=错误。 */
+/** 原子操作：聚焦窗口 → 延迟 → 发按键。支持 {LWIN} 组合（SendKeys 不支持的 Win 键走 keybd_event）。返回 0=成功 1=窗口不存在 其它=错误。 */
 function focusAndSend(target, keys, delay) {
   const safeT = String(target).replace(/'/g, "''");
   const safeK = keys.replace(/'/g, "''");
   const isPid = /^\d+$/.test(String(target));
   const appArg = isPid ? `[int]${Number(target)}` : `'${safeT}'`;
-  const script = `$w = New-Object -ComObject WScript.Shell; if (-not $w.AppActivate(${appArg})) { exit 1 }; Start-Sleep -Seconds ${delay}; $w.SendKeys('${safeK}'); exit 0`;
+  let script;
+  const winMatch = /\{LWIN\}(.)/i.exec(keys);
+  if (winMatch) {
+    const vk = winMatch[1].toUpperCase().charCodeAt(0);
+    const sig = '[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.IntPtr extra);';
+    script = `$w = New-Object -ComObject WScript.Shell; if (-not $w.AppActivate(${appArg})) { exit 1 }; Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name K -Namespace W -PassThru; $t::keybd_event(0x5B,0,0,[IntPtr]::Zero); $t::keybd_event(${vk},0,0,[IntPtr]::Zero); $t::keybd_event(${vk},0,2,[IntPtr]::Zero); $t::keybd_event(0x5B,0,2,[IntPtr]::Zero); exit 0`;
+  } else {
+    script = `$w = New-Object -ComObject WScript.Shell; if (-not $w.AppActivate(${appArg})) { exit 1 }; Start-Sleep -Seconds ${delay}; $w.SendKeys('${safeK}'); exit 0`;
+  }
   const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: delay * 1000 + 15000, windowsHide: true });
   return r.status;
 }
@@ -767,12 +824,35 @@ function preprocessImage(p, opts) {
   return cropZoomImage(downscaleIfLarge(localizeImage(p)), opts.crop, opts.zoom);
 }
 
+/** 直连视觉上下文（最近看过的图），供 ask --for see 追问复用。 */
+const VISION_STATE_FILE = path.join(os.tmpdir(), 'codex-bridge-vision-state.json');
+function saveVisionState(img) {
+  try { fs.writeFileSync(VISION_STATE_FILE, JSON.stringify({ image: img, at: Date.now() }), 'utf8'); } catch { /* ignore */ }
+}
+function readVisionState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(VISION_STATE_FILE, 'utf8'));
+    return s && s.image && fs.existsSync(s.image) ? s : null;
+  } catch { return null; }
+}
+
+async function askVisionFollowup(question, opts) {
+  const s = readVisionState();
+  if (!s) return null;
+  try {
+    const prompt = `这是一张用户之前发过的图片（之前已向用户描述过它）。现在用户追问：${question}\n\n请基于图片内容直接回答这个追问。`;
+    const text = await directVision(s.image, prompt, opts);
+    return '[直连视觉·追问]\n' + text;
+  } catch { return null; }
+}
+
 /** 单图视觉执行：直连优先（默认），失败回退 codex exec（含 Claude 备用）。 */
 async function runVision(img, prompt, opts) {
   const wantDirect = opts.direct === 'only' || (opts.direct !== 'off' && true);
   if (wantDirect) {
     try {
       const text = await directVision(img, prompt, opts);
+      saveVisionState(img);
       return { text: '[直连视觉]\n' + text, via: 'direct' };
     } catch (err) {
       if (opts.direct === 'only') throw new Error(`直连视觉失败: ${err.message}`);
@@ -780,7 +860,7 @@ async function runVision(img, prompt, opts) {
     }
   }
   const effort = ['-c', `model_reasoning_effort="${opts.effort}"`];
-  const r = runCodexSync(['exec', prompt, '-i', img, '-s', 'read-only', '--skip-git-repo-check', '--color', 'never', ...effort], opts);
+  const r = runCodexSync(['exec', prompt, '-i', img, '-s', 'read-only', '--skip-git-repo-check', '--color', 'never', ...effort], { ...opts, threadCategory: 'see' });
   if (!r.text) throw new Error(`codex 无结果（exit=${r.exit}）${r.errTail ? '\n' + r.errTail.slice(0, 300) : ''}`);
   return { text: r.text, via: r.via };
 }
@@ -793,7 +873,7 @@ async function seeMode(positionals, opts) {
     console.log(r.text);
     return;
   }
-  const { text, exit, signal, errTail } = runCodexSync(buildArgs('see', imgs, opts), opts);
+  const { text, exit, signal, errTail } = runCodexSync(buildArgs('see', imgs, { ...opts, threadCategory: 'see' }), { ...opts, threadCategory: 'see' });
   if (text) { console.log(text); return; }
   console.error(`[codex-bridge] codex 没有产出结果（exit=${exit}, signal=${signal}）`);
   if (errTail) console.error(`[codex-bridge] stderr 末尾:\n${errTail}`);
@@ -844,19 +924,22 @@ async function probeMode(opts) {
 
 function mouseAction(kind, args, opts) {
   const delay = opts.delay == null ? 3 : opts.delay;
-  const dpiFix = `Add-Type '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' -Name DPI -Namespace W; [W.DPI]::SetProcessDPIAware() | Out-Null; `;
-  const sig = '[DllImport("user32.dll")] public static extern void mouse_event(uint d, uint dx, uint dy, uint data, System.IntPtr e);';
+  const cs = `using System; using System.Runtime.InteropServices; [StructLayout(LayoutKind.Sequential)] public struct MINPUT { public uint type; public MOUSEINPUT mi; } [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; } public class MI { [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint n, MINPUT[] inputs, int size); [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }`;
+  const addType = `Add-Type -TypeDefinition '${cs}'`;
+  const makeInput = (x, y, flags, data) => `$i=New-Object MINPUT; $i.type=0; $i.mi.dx=[int]((${x}*65535)/$sw); $i.mi.dy=[int]((${y}*65535)/$sh); $i.mi.mouseData=${data}; $i.mi.dwFlags=0x8000 -bor ${flags}; $i.mi.time=0; $i.mi.dwExtraInfo=[IntPtr]::Zero; [MI]::SendInput(1,@($i),[System.Runtime.InteropServices.Marshal]::SizeOf([Type][MINPUT])) | Out-Null; `;
   let script;
   if (kind === 'click') {
     const [x, y] = args;
     const btn = opts.button === 'right' ? 'right' : 'left';
+    const down = btn === 'right' ? 0x0008 : 0x0002;
+    const up = btn === 'right' ? 0x0010 : 0x0004;
     const dbl = opts.double
-      ? 'Start-Sleep -Milliseconds 60; $t::mouse_event($down,0,0,0,[IntPtr]::Zero); Start-Sleep -Milliseconds 60; $t::mouse_event($up,0,0,0,[IntPtr]::Zero)'
+      ? `Start-Sleep -Milliseconds 60; ${makeInput(x, y, down, 0)} Start-Sleep -Milliseconds 60; ${makeInput(x, y, up, 0)} `
       : '';
-    script = `${dpiFix}Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x},${y}); Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $down=0x0002; $up=0x0004; if ('${btn}' -eq 'right') { $down=0x0008; $up=0x0010 }; $t::mouse_event($down,0,0,0,[IntPtr]::Zero); Start-Sleep -Milliseconds 80; $t::mouse_event($up,0,0,0,[IntPtr]::Zero); ${dbl}`;
+    script = `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; ${addType}; [MI]::SetProcessDPIAware() | Out-Null; $sw=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width; $sh=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height; Start-Sleep -Seconds ${delay}; ${makeInput(x, y, down, 0)} Start-Sleep -Milliseconds 80; ${makeInput(x, y, up, 0)} ${dbl}`;
   } else {
     const ticks = args[0];
-    script = `${dpiFix}Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $delta=${ticks}*120; if ($delta -ge 0) { $t::mouse_event(0x0800,0,0,[uint32]$delta,[IntPtr]::Zero) } else { $t::mouse_event(0x0800,0,0,[uint32](4294967296+$delta),[IntPtr]::Zero) }`;
+    script = `${addType}; [MI]::SetProcessDPIAware() | Out-Null; Start-Sleep -Seconds ${delay}; $i=New-Object MINPUT; $i.type=0; $i.mi.dx=0; $i.mi.dy=0; $i.mi.mouseData=[uint32](${ticks}*120); $i.mi.dwFlags=0x0800; $i.mi.time=0; $i.mi.dwExtraInfo=[IntPtr]::Zero; [MI]::SendInput(1,@($i),[System.Runtime.InteropServices.Marshal]::SizeOf([Type][MINPUT])) | Out-Null`;
   }
   const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: delay * 1000 + 20000, windowsHide: true });
   return r.status === 0;
@@ -865,22 +948,33 @@ function mouseAction(kind, args, opts) {
 // ---------------- open（系统位置/应用/路径，shell 优先 + 验货闭环） ----------------
 
 const SHELL_TARGETS = {
-  '回收站': { kind: 'shell', shell: 'shell:RecycleBinFolder', title: '回收站' },
-  'recyclebin': { kind: 'shell', shell: 'shell:RecycleBinFolder', title: '回收站' },
-  'recycle': { kind: 'shell', shell: 'shell:RecycleBinFolder', title: '回收站' },
-  '此电脑': { kind: 'shell', shell: 'shell:MyComputerFolder', title: '此电脑' },
-  '我的电脑': { kind: 'shell', shell: 'shell:MyComputerFolder', title: '此电脑' },
-  'thispc': { kind: 'shell', shell: 'shell:MyComputerFolder', title: '此电脑' },
-  '下载': { kind: 'shell', shell: 'shell:Downloads', title: '下载' },
-  'downloads': { kind: 'shell', shell: 'shell:Downloads', title: '下载' },
-  '桌面': { kind: 'shell', shell: 'shell:Desktop', title: '桌面' },
-  'desktop': { kind: 'shell', shell: 'shell:Desktop', title: '桌面' },
-  '文档': { kind: 'shell', shell: 'shell:Personal', title: '文档' },
-  'documents': { kind: 'shell', shell: 'shell:Personal', title: '文档' },
-  '图片': { kind: 'shell', shell: 'shell:My Pictures', title: '图片' },
-  'pictures': { kind: 'shell', shell: 'shell:My Pictures', title: '图片' },
-  '控制面板': { kind: 'app', app: 'control.exe', title: '控制面板' },
-  'controlpanel': { kind: 'app', app: 'control.exe', title: '控制面板' }
+  '回收站': { kind: 'shell', shell: 'shell:RecycleBinFolder', titles: ['回收站', 'Recycle Bin'] },
+  'recyclebin': { kind: 'shell', shell: 'shell:RecycleBinFolder', titles: ['回收站', 'Recycle Bin'] },
+  'recycle': { kind: 'shell', shell: 'shell:RecycleBinFolder', titles: ['回收站', 'Recycle Bin'] },
+  '此电脑': { kind: 'shell', shell: 'shell:MyComputerFolder', titles: ['此电脑', 'This PC'] },
+  '我的电脑': { kind: 'shell', shell: 'shell:MyComputerFolder', titles: ['此电脑', 'This PC'] },
+  'thispc': { kind: 'shell', shell: 'shell:MyComputerFolder', titles: ['此电脑', 'This PC'] },
+  '下载': { kind: 'shell', shell: 'shell:Downloads', titles: ['下载', 'Downloads'] },
+  'downloads': { kind: 'shell', shell: 'shell:Downloads', titles: ['下载', 'Downloads'] },
+  '桌面': { kind: 'shell', shell: 'shell:Desktop', titles: ['桌面', 'Desktop'] },
+  'desktop': { kind: 'shell', shell: 'shell:Desktop', titles: ['桌面', 'Desktop'] },
+  '文档': { kind: 'shell', shell: 'shell:Personal', titles: ['文档', 'Documents'] },
+  'documents': { kind: 'shell', shell: 'shell:Personal', titles: ['文档', 'Documents'] },
+  '图片': { kind: 'shell', shell: 'shell:My Pictures', titles: ['图片', 'Pictures'] },
+  'pictures': { kind: 'shell', shell: 'shell:My Pictures', titles: ['图片', 'Pictures'] },
+  '控制面板': { kind: 'app', app: 'control.exe', titles: ['控制面板', 'Control Panel'] },
+  'controlpanel': { kind: 'app', app: 'control.exe', titles: ['控制面板', 'Control Panel'] },
+  '任务管理器': { kind: 'app', app: 'taskmgr.exe', titles: ['任务管理器', 'Task Manager'] },
+  'taskmgr': { kind: 'app', app: 'taskmgr.exe', titles: ['任务管理器', 'Task Manager'] },
+  '记事本': { kind: 'app', app: 'notepad.exe', titles: ['记事本', 'Notepad'] },
+  'notepad': { kind: 'app', app: 'notepad.exe', titles: ['记事本', 'Notepad'] },
+  '计算器': { kind: 'app', app: 'calc.exe', titles: ['计算器', 'Calculator'] },
+  'calculator': { kind: 'app', app: 'calc.exe', titles: ['计算器', 'Calculator'] },
+  '设置': { kind: 'app', app: 'ms-settings:', titles: ['设置', 'Settings'] },
+  'settings': { kind: 'app', app: 'ms-settings:', titles: ['设置', 'Settings'] },
+  '资源管理器': { kind: 'app', app: 'explorer.exe', titles: ['文件资源管理器', 'File Explorer'] },
+  '文件资源管理器': { kind: 'app', app: 'explorer.exe', titles: ['文件资源管理器', 'File Explorer'] },
+  'explorer': { kind: 'app', app: 'explorer.exe', titles: ['文件资源管理器', 'File Explorer'] }
 };
 
 function openMode(target, opts) {
@@ -889,16 +983,24 @@ function openMode(target, opts) {
   const outFile = path.join(os.tmpdir(), `codex-bridge-open-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   let script = `$ErrorActionPreference='SilentlyContinue'; $out='${outFile.replace(/'/g, "''")}'; `;
   if (known) {
-    const titleExpect = known.title.replace(/'/g, "''");
-    script += `$before=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle} | Select-Object -ExpandProperty Id); `;
-    if (known.kind === 'shell') {
-      script += `Start-Process explorer.exe -ArgumentList '${known.shell}'; `;
+    const titlePat = (known.titles || [known.title || '']).map((t) => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    const isShell = known.kind === 'shell';
+    if (isShell) {
+      script += `$before=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle} | Select-Object -ExpandProperty Id); Start-Process explorer.exe -ArgumentList '${known.shell}'; `;
     } else {
       script += `Start-Process '${known.app}'; `;
     }
     script += `Start-Sleep -Seconds 3; `;
-    script += `$after=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle}); $newWin=$after | Where-Object {$_.Id -notin $before} | Select-Object -First 1; if (-not $newWin) { $newWin=$after | Where-Object {$_.MainWindowTitle -like '${titleExpect}*'} | Select-Object -First 1 }; `;
-    script += `if ($newWin) { $w=New-Object -ComObject WScript.Shell; $focus=$w.AppActivate($newWin.Id); [pscustomobject]@{opened=$true;pid=$newWin.Id;title=$newWin.MainWindowTitle;focus=$focus} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 } else { [pscustomobject]@{opened=$true;pid=$null;title='';focus=$false;note='窗口未在 3 秒内出现，可能被系统合并或延迟'} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 }`;
+    if (isShell) {
+      script += `$after=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle}); $newWin=$after | Where-Object {$_.Id -notin $before} | Select-Object -First 1; `;
+    }
+    script += `if (-not $newWin) { $newWin=Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle -match '${titlePat}'} | Sort-Object StartTime -Descending | Select-Object -First 1 }; `;
+    script += `if (-not $newWin) { Start-Sleep -Seconds 5; `;
+    if (isShell) {
+      script += `$after=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle}); $newWin=$after | Where-Object {$_.Id -notin $before} | Select-Object -First 1; `;
+    }
+    script += `if (-not $newWin) { $newWin=Get-Process -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle -match '${titlePat}'} | Sort-Object StartTime -Descending | Select-Object -First 1 } }; `;
+    script += `if ($newWin) { $w=New-Object -ComObject WScript.Shell; $focus=$w.AppActivate($newWin.Id); [pscustomobject]@{opened=$true;pid=$newWin.Id;title=$newWin.MainWindowTitle;focus=$focus} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 } else { [pscustomobject]@{opened=$true;pid=$null;title='';focus=$false;note='已启动，但 8 秒内未捕获窗口（可能延迟或后台运行）'} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 }`;
   } else {
     script += `$p=Start-Process '${String(target).replace(/'/g, "''")}' -PassThru -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; if ($p) { [pscustomobject]@{opened=($null -ne (Get-Process -Id $p.Id -ErrorAction SilentlyContinue));pid=$p.Id;title='';focus=$false} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 } else { [pscustomobject]@{opened=$false;pid=$null;title='';focus=$false;note='启动失败（检查路径/名称是否正确）'} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 }`;
   }
@@ -927,7 +1029,7 @@ async function main() {
   if (mode === 'events') { showEvents(opts.tail || Number(positionals[0]) || 15); return; }
   if (mode === 'stop') { stopWatch(); return; }
   if (mode === 'clean') { cleanMode(Number(positionals[0]) || 24); return; }
-  if (mode === 'shot') { shotMode(positionals.length ? positionals.join(' ') : '', opts); return; }
+  if (mode === 'shot') { await shotMode(positionals.length ? positionals.join(' ') : '', opts); return; }
   if (mode === 'probe') { await probeMode(opts); return; }
   if (mode === 'open') {
     if (positionals.length < 1) { console.error('用法: bridge.js open <回收站|此电脑|控制面板|下载|路径|网址>'); process.exit(1); }
@@ -945,9 +1047,25 @@ async function main() {
     return;
   }
   if (mode === 'click') {
-    if (positionals.length < 2) { console.error('用法: bridge.js click <x> <y> [--button right] [--double]'); process.exit(1); }
+    if (positionals.length < 2) { console.error('用法: bridge.js click <x> <y> [--button right] [--double] [--verify]'); process.exit(1); }
     const [x, y] = [Number(positionals[0]), Number(positionals[1])];
     if (!Number.isFinite(x) || !Number.isFinite(y)) { console.error('坐标无效'); process.exit(1); }
+    if (opts.verify) {
+      const dir = path.join(os.tmpdir(), 'dsh-shots');
+      fs.mkdirSync(dir, { recursive: true });
+      const shotPath = path.join(dir, `click-verify-${Date.now()}.png`);
+      if (takeScreenshot(shotPath)) {
+        try {
+          const desc = await directVision(shotPath, '一句话回答：当前屏幕的前台是什么应用？屏幕上主要有什么？', { ...opts, effort: 'low', timeout: 60 });
+          console.log(`[verify] 当前屏幕: ${desc.slice(0, 200)}`);
+          console.log(`[verify] 截图存档: ${shotPath}`);
+        } catch (err) {
+          console.log(`[verify] 视觉检查失败（${err.message}），继续执行点击`);
+        }
+      } else {
+        console.log('[verify] 截图失败，继续执行点击');
+      }
+    }
     console.log(`[codex-bridge] ${opts.delay == null ? 3 : opts.delay} 秒后${opts.double ? '双击' : '点击'}屏幕 (${x},${y})${opts.button === 'right' ? '（右键）' : ''}…`);
     console.log(mouseAction('click', [x, y], opts) ? '[codex-bridge] 已点击' : '[codex-bridge] 点击失败');
     return;
@@ -955,9 +1073,23 @@ async function main() {
   if (mode === 'scroll') {
     const ticks = Number(positionals[0]);
     if (!Number.isFinite(ticks)) { console.error('用法: bridge.js scroll <格数>（正=上，负=下）'); process.exit(1); }
-    console.log(`[codex-bridge] ${opts.delay || 3} 秒后滚动 ${ticks} 格…`);
+    console.log(`[codex-bridge] ${opts.delay == null ? 3 : opts.delay} 秒后滚动 ${ticks} 格…`);
     console.log(mouseAction('scroll', [ticks], opts) ? '[codex-bridge] 已滚动' : '[codex-bridge] 滚动失败');
     return;
+  }
+  if (mode === 'ask') {
+    if (positionals.length < 1) { console.error(HELP); process.exit(1); }
+    const q = positionals.join(' ');
+    if (opts.for === 'see') {
+      const ans = await askVisionFollowup(q, opts);
+      if (ans) { console.log(ans); return; }
+      console.error('[codex-bridge] 没有直连视觉上下文，回退 codex 会话续跑');
+    }
+    const { text, exit, signal, errTail } = runCodexSync(buildArgs('ask', positionals, { ...opts, threadCategory: 'ask' }), { ...opts, threadCategory: 'ask' });
+    if (text) { console.log(text); process.exit(0); }
+    console.error(`[codex-bridge] codex 没有产出结果（exit=${exit}, signal=${signal}）`);
+    if (errTail) console.error(`[codex-bridge] stderr 末尾:\n${errTail}`);
+    process.exit(4);
   }
   if (mode === 'see') { await seeMode(positionals, opts); return; }
   if (mode === 'fetch') {
@@ -977,8 +1109,8 @@ async function main() {
       process.exit(6);
     }
     const payload = mode === 'type' ? escapeSendKeys(positionals.join(' ')) : positionals.join(' ');
-    console.log(`[codex-bridge] 聚焦窗口 ${opts.window} → ${opts.delay || 3} 秒后发送${mode === 'type' ? '文本' : '按键'}…`);
-    const code = focusAndSend(opts.window, payload, opts.delay || 3);
+    console.log(`[codex-bridge] 聚焦窗口 ${opts.window} → ${opts.delay == null ? 3 : opts.delay} 秒后发送${mode === 'type' ? '文本' : '按键'}…`);
+    const code = focusAndSend(opts.window, payload, opts.delay == null ? 3 : opts.delay);
     if (code === 0) console.log('[codex-bridge] 已发送');
     else if (code === 1) console.error(`[codex-bridge] 无法聚焦窗口 "${opts.window}"，已取消发送`);
     else console.error(`[codex-bridge] 发送失败（exit=${code}）`);
@@ -987,6 +1119,7 @@ async function main() {
   if (mode === 'read' && positionals[0] && /^https?:\/\//i.test(positionals[0])) { fetchMode(positionals[0], opts); return; }
   if (mode === 'watch') {
     if (positionals.length < 1) { console.error(HELP); process.exit(1); }
+    if (opts.backend && opts.effort === 'ultra') opts.effort = 'low'; // GUI 机械操作要速度，默认降档
     watchTask(positionals.join(' '), opts.rules, opts);
     return;
   }
@@ -996,9 +1129,9 @@ async function main() {
     return;
   }
 
-  if (!['read', 'ask', 'gen', 'hands'].includes(mode)) { console.error(`unknown mode: ${mode}\n${HELP}`); process.exit(2); }
+  if (!['read', 'gen', 'hands'].includes(mode)) { console.error(`unknown mode: ${mode}\n${HELP}`); process.exit(2); }
   if (mode === 'hands' ? positionals.length < 2 : positionals.length < 1) { console.error(HELP); process.exit(1); }
-  const { text, exit, signal, errTail } = runCodexSync(buildArgs(mode, positionals, opts), opts);
+  const { text, exit, signal, errTail } = runCodexSync(buildArgs(mode, positionals, { ...opts, threadCategory: mode }), { ...opts, threadCategory: mode });
   if (text) { console.log(text); process.exit(0); }
   console.error(`[codex-bridge] codex 没有产出结果（exit=${exit}, signal=${signal}）`);
   if (errTail) console.error(`[codex-bridge] stderr 末尾:\n${errTail}`);

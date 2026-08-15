@@ -13,7 +13,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
-![Release](https://img.shields.io/badge/Release-v1.1.0-cyan)
+![Release](https://img.shields.io/badge/Release-v1.2.0-cyan)
 
 ## 能力一览
 
