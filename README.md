@@ -41,6 +41,7 @@ Harness 的 agent 若用无视觉模型（如 DeepSeek-V4-Pro），默认在 Web
 
 **解法**：给 `@deepseek-ai/dsh-host-apiproxy` 打一个小补丁——把图片**落地成文件**、把**绝对路径
 以文本**注入 agent 消息，之后 agent 就能用本技能的 `see` 模式调 Codex 看图了。
+**对话记录里还会显示图片缩略图**（配套的适配器小补丁见补丁文档）。
 
 - 补丁说明：[patches/dsh-image-gateway.md](patches/dsh-image-gateway.md)
 - **一键补丁脚本**：[patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)

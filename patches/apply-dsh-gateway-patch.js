@@ -44,7 +44,7 @@ function imageExtension(mediaType) {
  * the file to an external vision tool (for example a local Codex CLI) and
  * answer from that tool's transcript.
  */
-async function materializeImageContent(content) {
+async function materializeImageContent(ctx, content) {
 \tconst dir = join(tmpdir(), "dsh-incoming-images");
 \tawait mkdir(dir, { recursive: true });
 \tconst blocks = [];
@@ -54,8 +54,18 @@ async function materializeImageContent(content) {
 \t\t\tcontinue;
 \t\t}
 \t\tconst file = join(dir, \`\${randomUUID()}\${imageExtension(part.mediaType)}\`);
-\t\tawait writeFile(file, decodeBase64(part.data));
+\t\tconst data = decodeBase64(part.data);
+\t\tawait writeFile(file, data);
 \t\tconst name = part.name === void 0 ? file : part.name;
+\t\tlet attachment;
+\t\ttry {
+\t\t\tattachment = await ctx.attachments.saveImage({
+\t\t\t\tdata,
+\t\t\t\tmediaType: part.mediaType,
+\t\t\t\t...part.name === void 0 ? {} : { name: part.name }
+\t\t\t});
+\t\t} catch { /* UI 展示失败不影响主流程 */ }
+\t\tif (attachment !== void 0) blocks.push({ type: "image", attachment });
 \t\tblocks.push({
 \t\t\ttype: "text",
 \t\t\ttext: [
@@ -92,7 +102,7 @@ const PROMPT_NEW = [
   '\t\t\t\t\t\t\tconst current = selectionFor(agent).current;',
   '\t\t\t\t\t\t\tconst modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model);',
   '\t\t\t\t\t\t\tconst supportsImage = modelInfo.inputModalities === void 0 || modelInfo.inputModalities.includes("image");',
-  '\t\t\t\t\t\t\tdurable = supportsImage ? await durablePromptContent(ctx, content) : await materializeImageContent(content);',
+  '\t\t\t\t\t\t\tdurable = supportsImage ? await durablePromptContent(ctx, content) : await materializeImageContent(ctx, content);',
   '\t\t\t\t\t\t} else {',
   '\t\t\t\t\t\t\tdurable = await durablePromptContent(ctx, content);',
   '\t\t\t\t\t\t}',
@@ -102,15 +112,44 @@ const PROMPT_NEW = [
   '\t\t\t\t\t\t});'
 ].join('\n');
 
+// —— 适配器补丁（dsh-llm-deepseek）：图片块降级为占位符而不是报错，
+//    这样消息里保留图片块（UI 显示缩略图），发给模型时替换成文本。
+const ADAPTER_EDITS = [
+  ['/** Join the text blocks of a message (used for user/tool-result content). */\nfunction flattenText(blocks) {\n\treturn blocks.filter((block) => block.type === "text").map((block) => block.text).join("");\n}',
+   '/** Join the text blocks of a message; image blocks degrade to a placeholder so the model never sees raw image content. */\nfunction flattenText(blocks) {\n\treturn blocks.map((block) => block.type === "text" ? block.text : block.type === "image" ? "(image omitted: model does not support images)" : "").join("");\n}'],
+  ['\t\tassertTextOnly(message.content);\n', '']
+];
+
 function fail(msg) {
   console.error('[patch] 失败: ' + msg);
   process.exit(1);
 }
 
+function applyEdits(file, edits, label) {
+  let src = fs.readFileSync(file, 'utf8');
+  const backup = `${file}.bak-${Date.now()}`;
+  fs.copyFileSync(file, backup);
+  console.log(`[patch] 已备份: ${backup}`);
+  try {
+    for (const [from, to] of edits) {
+      if (src.split(from).length - 1 !== 1) throw new Error(`${label} 片段未匹配（版本可能已变化）: ${from.slice(0, 60)}`);
+      src = src.replace(from, to);
+    }
+  } catch (err) {
+    fs.copyFileSync(backup, file);
+    console.error('[patch] 已回滚。原因: ' + err.message);
+    process.exit(4);
+  }
+  fs.writeFileSync(file, src);
+  console.log(`[patch] ${label} 补丁已应用: ${file}`);
+}
+
 function main() {
   const target = process.argv[2];
+  const adapter = process.argv[3];
   if (!target) {
-    console.error('用法: node apply-dsh-gateway-patch.js <path/to/dsh-host-apiproxy/lib/index.js>');
+    console.error('用法: node apply-dsh-gateway-patch.js <dsh-host-apiproxy/lib/index.js> [<dsh-llm-deepseek/lib/index.js>]');
+    console.error('  第二个参数可选：同时给 DeepSeek 适配器打「图片降级占位符」补丁，让对话记录显示图片缩略图');
     process.exit(2);
   }
   const file = path.resolve(target);
@@ -118,48 +157,58 @@ function main() {
   let src = fs.readFileSync(file, 'utf8');
 
   if (src.includes('async function materializeImageContent')) {
-    console.log('[patch] 已打过补丁（检测到 materializeImageContent），无需重复应用。');
-    process.exit(0);
-  }
-  if (src.includes('let durable;')) {
-    console.log('[patch] 检测到部分修改痕迹，请人工检查: ' + file);
-    process.exit(3);
-  }
-
-  const backup = `${file}.bak-${Date.now()}`;
-  fs.copyFileSync(file, backup);
-  console.log('[patch] 已备份原文件: ' + backup);
-
-  try {
-    // 1) 三行 import
-    for (const [from, to] of IMPORT_EDITS) {
-      if (!src.includes(from)) throw new Error('import 行未匹配（版本可能已变化）: ' + from.slice(0, 60));
-      src = src.split(from).join(to);
+    console.log('[patch] 网关已打过补丁（检测到 materializeImageContent），跳过。');
+  } else {
+    if (src.includes('let durable;')) {
+      console.log('[patch] 检测到部分修改痕迹，请人工检查: ' + file);
+      process.exit(3);
     }
-    // 2) 插入函数
-    if (src.split(FUNC_ANCHOR).length - 1 !== 1) throw new Error('函数插入锚点未匹配（应恰好出现一次）');
-    src = src.replace(FUNC_ANCHOR, FUNC_BLOCK);
-    // 3) prompt 处理器分流
-    if (src.split(PROMPT_OLD).length - 1 !== 1) throw new Error('prompt 处理器代码块未匹配（版本可能已变化）');
-    src = src.replace(PROMPT_OLD, PROMPT_NEW);
-  } catch (err) {
-    fs.copyFileSync(backup, file);
-    console.error('[patch] 已回滚。原因: ' + err.message);
-    process.exit(4);
+    const backup = `${file}.bak-${Date.now()}`;
+    fs.copyFileSync(file, backup);
+    console.log('[patch] 已备份原文件: ' + backup);
+
+    try {
+      // 1) 三行 import
+      for (const [from, to] of IMPORT_EDITS) {
+        if (!src.includes(from)) throw new Error('import 行未匹配（版本可能已变化）: ' + from.slice(0, 60));
+        src = src.split(from).join(to);
+      }
+      // 2) 插入函数
+      if (src.split(FUNC_ANCHOR).length - 1 !== 1) throw new Error('函数插入锚点未匹配（应恰好出现一次）');
+      src = src.replace(FUNC_ANCHOR, FUNC_BLOCK);
+      // 3) prompt 处理器分流
+      if (src.split(PROMPT_OLD).length - 1 !== 1) throw new Error('prompt 处理器代码块未匹配（版本可能已变化）');
+      src = src.replace(PROMPT_OLD, PROMPT_NEW);
+    } catch (err) {
+      fs.copyFileSync(backup, file);
+      console.error('[patch] 已回滚。原因: ' + err.message);
+      process.exit(4);
+    }
+
+    // 校验
+    const ok = src.includes('async function materializeImageContent') && src.includes('supportsImage');
+    if (!ok) {
+      fs.copyFileSync(backup, file);
+      fail('校验失败，已回滚（请检查 dsh 版本是否兼容）');
+    }
+    fs.writeFileSync(file, src);
+    console.log('[patch] 网关补丁已应用: ' + file);
   }
 
-  // 校验
-  const ok = src.includes('async function materializeImageContent') && src.includes('supportsImage');
-  if (!ok) {
-    fs.copyFileSync(backup, file);
-    fail('校验失败，已回滚（请检查 dsh 版本是否兼容）');
+  if (adapter) {
+    const adapterFile = path.resolve(adapter);
+    if (!fs.existsSync(adapterFile)) fail('适配器文件不存在: ' + adapterFile);
+    const adapterSrc = fs.readFileSync(adapterFile, 'utf8');
+    if (adapterSrc.includes('image omitted: model does not support images')) {
+      console.log('[patch] 适配器已打过补丁，跳过。');
+    } else {
+      applyEdits(adapterFile, ADAPTER_EDITS, '适配器');
+    }
   }
-  fs.writeFileSync(file, src);
-  console.log('[patch] 补丁已应用: ' + file);
-  console.log('[patch] 下一步：重启 dsh web 使其生效（重启后发图即会落地成文件并注入路径文本）。');
-  console.log('[patch] 若要撤销：用备份覆盖回原文件: ' + backup);
+
+  console.log('[patch] 下一步：重启 dsh web 使其生效（重启后发图：落地成文件 + 对话记录显示图片缩略图 + 路径文本注入 agent）。');
 }
 
-module.exports = { IMPORT_EDITS, FUNC_ANCHOR, FUNC_BLOCK, PROMPT_OLD, PROMPT_NEW };
+module.exports = { IMPORT_EDITS, FUNC_ANCHOR, FUNC_BLOCK, PROMPT_OLD, PROMPT_NEW, ADAPTER_EDITS };
 
 if (require.main === module) main();

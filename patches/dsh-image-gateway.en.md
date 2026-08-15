@@ -43,7 +43,7 @@ function imageExtension(mediaType) {
  * Materialize image parts to on-disk files and rewrite them as text pointers.
  * A model that cannot accept image input must never receive an image part.
  */
-async function materializeImageContent(content) {
+async function materializeImageContent(ctx, content) {
 	const dir = join(tmpdir(), "dsh-incoming-images");
 	await mkdir(dir, { recursive: true });
 	const blocks = [];
@@ -53,8 +53,18 @@ async function materializeImageContent(content) {
 			continue;
 		}
 		const file = join(dir, `${randomUUID()}${imageExtension(part.mediaType)}`);
-		await writeFile(file, decodeBase64(part.data));
+		const data = decodeBase64(part.data);
+		await writeFile(file, data);
 		const name = part.name === void 0 ? file : part.name;
+		let attachment;
+		try {
+			attachment = await ctx.attachments.saveImage({
+				data,
+				mediaType: part.mediaType,
+				...part.name === void 0 ? {} : { name: part.name }
+			});
+		} catch { /* UI 展示失败不影响主流程 */ }
+		if (attachment !== void 0) blocks.push({ type: "image", attachment });
 		blocks.push({
 			type: "text",
 			text: [
@@ -97,7 +107,7 @@ if (hasImage) {
 	const current = selectionFor(agent).current;
 	const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model);
 	const supportsImage = modelInfo.inputModalities === void 0 || modelInfo.inputModalities.includes("image");
-	durable = supportsImage ? await durablePromptContent(ctx, content) : await materializeImageContent(content);
+	durable = supportsImage ? await durablePromptContent(ctx, content) : await materializeImageContent(ctx, content);
 } else {
 	durable = await durablePromptContent(ctx, content);
 }
@@ -106,6 +116,28 @@ const message = createUserMessage({
 	source
 });
 ```
+
+## Showing image thumbnails in the conversation (optional, recommended)
+
+The patch above keeps the image block in the message (saved to the attachment store), but the
+`dsh-llm-deepseek` adapter throws on image blocks. Apply one more small patch so image blocks
+degrade to a placeholder instead — the model never sees raw images while the chat UI shows thumbnails:
+
+File: `node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js`
+
+```js
+// 1) flattenText: degrade image blocks to a placeholder
+/** Join the text blocks of a message; image blocks degrade to a placeholder so the model never sees raw image content. */
+function flattenText(blocks) {
+	return blocks.map((block) => block.type === "text" ? block.text : block.type === "image" ? "(image omitted: model does not support images)" : "").join("");
+}
+
+// 2) in serializeMessages, remove this line (previously "throw on image")
+// 		assertTextOnly(message.content);
+```
+
+After that: sending an image → the user message shows an **image thumbnail** plus the path text →
+the agent analyzes it via Codex → answers normally.
 
 ## Taking effect
 

@@ -44,7 +44,7 @@ the gateway ("current model does not support images") — the image never reache
 
 **Fix**: patch `@deepseek-ai/dsh-host-apiproxy` — images are **materialized to files** and their
 **absolute paths are injected into the message as text**, so the agent can analyze them with the
-`see` mode.
+`see` mode. The conversation also shows **image thumbnails** (companion adapter patch in the patch doc).
 
 - Patch reference: [patches/dsh-image-gateway.en.md](patches/dsh-image-gateway.en.md)
 - **One-click patch script**: [patches/apply-dsh-gateway-patch.js](patches/apply-dsh-gateway-patch.js)

@@ -42,7 +42,7 @@ function imageExtension(mediaType) {
  * Materialize image parts to on-disk files and rewrite them as text pointers.
  * A model that cannot accept image input must never receive an image part.
  */
-async function materializeImageContent(content) {
+async function materializeImageContent(ctx, content) {
 	const dir = join(tmpdir(), "dsh-incoming-images");
 	await mkdir(dir, { recursive: true });
 	const blocks = [];
@@ -52,8 +52,18 @@ async function materializeImageContent(content) {
 			continue;
 		}
 		const file = join(dir, `${randomUUID()}${imageExtension(part.mediaType)}`);
-		await writeFile(file, decodeBase64(part.data));
+		const data = decodeBase64(part.data);
+		await writeFile(file, data);
 		const name = part.name === void 0 ? file : part.name;
+		let attachment;
+		try {
+			attachment = await ctx.attachments.saveImage({
+				data,
+				mediaType: part.mediaType,
+				...part.name === void 0 ? {} : { name: part.name }
+			});
+		} catch { /* UI 展示失败不影响主流程 */ }
+		if (attachment !== void 0) blocks.push({ type: "image", attachment });
 		blocks.push({
 			type: "text",
 			text: [
@@ -96,7 +106,7 @@ if (hasImage) {
 	const current = selectionFor(agent).current;
 	const modelInfo = await ctx.llm.resolveModelInfo(current.provider, current.model);
 	const supportsImage = modelInfo.inputModalities === void 0 || modelInfo.inputModalities.includes("image");
-	durable = supportsImage ? await durablePromptContent(ctx, content) : await materializeImageContent(content);
+	durable = supportsImage ? await durablePromptContent(ctx, content) : await materializeImageContent(ctx, content);
 } else {
 	durable = await durablePromptContent(ctx, content);
 }
@@ -105,6 +115,26 @@ const message = createUserMessage({
 	source
 });
 ```
+
+## 让对话记录显示图片缩略图（可选，推荐）
+
+上面的补丁会让消息里**保留图片块**（存入附件库），但 `dsh-llm-deepseek` 适配器遇到图片块会直接报错。
+再给适配器打一个「图片块降级为占位符」的小补丁，模型就不会收到图片、而对话 UI 能显示缩略图：
+
+文件：`node_modules/@deepseek-ai/dsh-llm-deepseek/lib/index.js`
+
+```js
+// 1) flattenText：图片块降级为占位符
+/** Join the text blocks of a message; image blocks degrade to a placeholder so the model never sees raw image content. */
+function flattenText(blocks) {
+	return blocks.map((block) => block.type === "text" ? block.text : block.type === "image" ? "(image omitted: model does not support images)" : "").join("");
+}
+
+// 2) serializeMessages 里删掉这行（原为「遇图报错」）
+// 		assertTextOnly(message.content);
+```
+
+打完后：发图 → 对话记录里用户消息显示**图片缩略图** + 路径文本 → agent 调 codex 看图 → 正常回答。
 
 ## 生效
 
