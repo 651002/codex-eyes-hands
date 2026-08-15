@@ -46,6 +46,7 @@ node "C:\Users\Administrator\.codex\skills\codex-bridge\scripts\bridge.js" <模�
 | `key` | `... bridge.js key "{ENTER}" --window "..."` | 向指定窗口发按键/快捷键（实验性，见模式八） |
 | `click` | `... bridge.js click 475 280` | 点击屏幕坐标（实验性，见模式九） |
 | `scroll` | `... bridge.js scroll 3` | 滚轮滚动（正=上，负=下；实验性） |
+| `open` | `... bridge.js open 回收站` | 打开系统位置/应用/路径，自动验货（PID + 置前） |
 
 公共选项：`--effort minimal|low|medium|high|xhigh|max|ultra`（默认 **ultra 最高档**：满血推理 + 自动任务委派；纯看图场景 codex 会把它折叠成 max；想省 token 才降档）、`--backup auto|only|off`（备用通道，见下）、`--direct on|off|only`（直连视觉，默认 on）、`--crop x,y,w,h`、`--zoom <倍率>`、`--target "<元素>"`、`--button left|right`、`--model <模型id>`、`--timeout <秒>`（默认 300）、`--workspace <目录>`。
 
@@ -103,6 +104,8 @@ node "...\scripts\bridge.js" steer "<纠正指令>"                      # 自�
 - **fetch <url>**：抓取网页正文并总结（curl / Invoke-WebRequest）。适合我无法直接抓的网页。
 - **search "<问题>"**：codex 官方联网搜索（`--search`），回答带来源。适合需要时效性信息的检索。
 - **clean [小时]**：清理 `%TEMP%\dsh-incoming-images\`、`%TEMP%\dsh-shots\` 里超过阈值的旧文件，以及 1 小时以上的 codex-bridge 临时文件（自动跳过活跃 watch 的文件）。
+- **open <目标>**：打开系统位置/应用/路径（别名：回收站/此电脑/我的电脑/控制面板/下载/桌面/文档/图片，或任意路径、网址、应用名）。打开后自动**验货**：报告 PID + 窗口标题 + 置前结果（置前失败说明用户在前台用电脑，Windows 拦后台抢焦点，让用户点任务栏即可）。
+- **原则（重要）**：系统级操作（开回收站/文件夹/应用/网址）**优先用 `open` 的 shell 命令**，不要先想着 `click`/`locate`/computer_use——鼠标只留给「应用窗口内部 UI 元素」这类 shell 干不了的活。
 
 ## 备用通道（Claude）✅ 已实测
 
@@ -164,6 +167,8 @@ node "...\scripts\bridge.js" steer "<纠正指令>"                      # 自�
 | 让我看看你屏幕现在什么样 | `shot` |
 | 抓某个网址内容 | `fetch` |
 | 需要联网查最新信息 | `search` |
+| 打开回收站/文件夹/应用/网址 | `open`（优先 shell，别用鼠标） |
+| 点应用窗口内的按钮 | `locate` + `click`（用户确认后） |
 
 
 ## 兜底：裸命令配方（脚本缺失时用）
@@ -205,3 +210,4 @@ Get-Content "$env:TEMP\codex-bridge-result.txt" -Raw -Encoding UTF8
 - type/key ⚠️ 实验性：护栏（--window 聚焦失败即取消）实测有效；焦点定位受「别名启动进程」「全屏游戏抢焦点」限制，需用户配合
 - 视觉原语 ✅（2026-08-15）：probe 红方块自检通过（10 个可用模型）；直连 see 4.8 秒；locate 坐标精确命中（475,280 vs 实际 475,280）；ocr 三块文字带框全对；crop+zoom 区域放大正常；大图降采样路径就绪
 - click/scroll ⚠️ 未实测（动真实鼠标），使用前必须先经用户确认
+- open ✅（2026-08-15）：回收站/控制面板均成功（PID + 窗口标题 + 置前验货闭环）；修复 PowerShell 5.1 UTF-8 BOM 导致 JSON 解析失败的坑

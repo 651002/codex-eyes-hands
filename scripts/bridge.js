@@ -59,6 +59,7 @@ const HELP = `codex-bridge — 调用本机 Codex CLI 当眼睛和手
   ocr <图片>                             逐块 OCR（带坐标 JSON）
   click <x> <y> [--button right]         点击屏幕坐标（默认 3 秒延迟；动真实鼠标，先经用户确认）
   scroll <格数>                          滚轮滚动（正=上，负=下）
+  open <目标>                            打开系统位置/应用/路径（回收站/此电脑/控制面板/下载…；打开后验货：PID+置前）
 
 选项:
   --effort minimal|low|medium|high|xhigh|max|ultra   思考强度，默认 ultra（最高档）
@@ -68,6 +69,8 @@ const HELP = `codex-bridge — 调用本机 Codex CLI 当眼睛和手
   --zoom <倍率>              配合 --crop 放大后再分析
   --target "<元素>"          locate 模式的目标元素描述
   --button left|right        click 模式的按键（默认左键）
+  --double                   click 模式双击
+  --backend computer|browser watch 模式：启用 computer_use / browser_use（指挥官模式）
   --delay <秒>               type/key 发送按键前的延迟，默认 3
   --window <标题开头或PID>    type/key 的目标窗口（必填；聚焦失败则取消发送）
   --model <模型id>           覆盖默认模型
@@ -98,6 +101,8 @@ function parseArgs(argv) {
     else if (a === '--zoom') opts.zoom = Number(argv[++i]);
     else if (a === '--direct') opts.direct = argv[++i];
     else if (a === '--button') opts.button = argv[++i];
+    else if (a === '--double') opts.double = true;
+    else if (a === '--backend') opts.backend = argv[++i];
     else if (a === '--help' || a === '-h') { console.log(HELP); process.exit(0); }
     else if (a === '--version' || a === '-V') { console.log(`codex-bridge v${VERSION}`); process.exit(0); }
     else positionals.push(a);
@@ -517,6 +522,8 @@ function watchTask(task, rules, opts) {
   const args = ['exec', prompt, '--json', '-s', 'workspace-write', '--skip-git-repo-check', '--color', 'never', '-c', `model_reasoning_effort="${opts.effort}"`, '-o', outFile];
   if (opts.workspace) args.push('-C', opts.workspace);
   if (opts.model) args.push('-m', opts.model);
+  if (opts.backend === 'computer') args.push('--enable', 'computer_use');
+  if (opts.backend === 'browser') args.push('--enable', 'browser_use');
 
   const outFd = fs.openSync(eventsFile, 'w');
   const errFd = fs.openSync(errFile, 'w');
@@ -836,19 +843,78 @@ async function probeMode(opts) {
 }
 
 function mouseAction(kind, args, opts) {
-  const delay = opts.delay || 3;
+  const delay = opts.delay == null ? 3 : opts.delay;
+  const dpiFix = `Add-Type '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();' -Name DPI -Namespace W; [W.DPI]::SetProcessDPIAware() | Out-Null; `;
   const sig = '[DllImport("user32.dll")] public static extern void mouse_event(uint d, uint dx, uint dy, uint data, System.IntPtr e);';
   let script;
   if (kind === 'click') {
     const [x, y] = args;
     const btn = opts.button === 'right' ? 'right' : 'left';
-    script = `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x},${y}); Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $down=0x0002; $up=0x0004; if ('${btn}' -eq 'right') { $down=0x0008; $up=0x0010 }; $t::mouse_event($down,0,0,0,[IntPtr]::Zero); Start-Sleep -Milliseconds 80; $t::mouse_event($up,0,0,0,[IntPtr]::Zero)`;
+    const dbl = opts.double
+      ? 'Start-Sleep -Milliseconds 60; $t::mouse_event($down,0,0,0,[IntPtr]::Zero); Start-Sleep -Milliseconds 60; $t::mouse_event($up,0,0,0,[IntPtr]::Zero)'
+      : '';
+    script = `${dpiFix}Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x},${y}); Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $down=0x0002; $up=0x0004; if ('${btn}' -eq 'right') { $down=0x0008; $up=0x0010 }; $t::mouse_event($down,0,0,0,[IntPtr]::Zero); Start-Sleep -Milliseconds 80; $t::mouse_event($up,0,0,0,[IntPtr]::Zero); ${dbl}`;
   } else {
     const ticks = args[0];
-    script = `Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $delta=${ticks}*120; if ($delta -ge 0) { $t::mouse_event(0x0800,0,0,[uint32]$delta,[IntPtr]::Zero) } else { $t::mouse_event(0x0800,0,0,[uint32](4294967296+$delta),[IntPtr]::Zero) }`;
+    script = `${dpiFix}Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $delta=${ticks}*120; if ($delta -ge 0) { $t::mouse_event(0x0800,0,0,[uint32]$delta,[IntPtr]::Zero) } else { $t::mouse_event(0x0800,0,0,[uint32](4294967296+$delta),[IntPtr]::Zero) }`;
   }
   const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: delay * 1000 + 20000, windowsHide: true });
   return r.status === 0;
+}
+
+// ---------------- open（系统位置/应用/路径，shell 优先 + 验货闭环） ----------------
+
+const SHELL_TARGETS = {
+  '回收站': { kind: 'shell', shell: 'shell:RecycleBinFolder', title: '回收站' },
+  'recyclebin': { kind: 'shell', shell: 'shell:RecycleBinFolder', title: '回收站' },
+  'recycle': { kind: 'shell', shell: 'shell:RecycleBinFolder', title: '回收站' },
+  '此电脑': { kind: 'shell', shell: 'shell:MyComputerFolder', title: '此电脑' },
+  '我的电脑': { kind: 'shell', shell: 'shell:MyComputerFolder', title: '此电脑' },
+  'thispc': { kind: 'shell', shell: 'shell:MyComputerFolder', title: '此电脑' },
+  '下载': { kind: 'shell', shell: 'shell:Downloads', title: '下载' },
+  'downloads': { kind: 'shell', shell: 'shell:Downloads', title: '下载' },
+  '桌面': { kind: 'shell', shell: 'shell:Desktop', title: '桌面' },
+  'desktop': { kind: 'shell', shell: 'shell:Desktop', title: '桌面' },
+  '文档': { kind: 'shell', shell: 'shell:Personal', title: '文档' },
+  'documents': { kind: 'shell', shell: 'shell:Personal', title: '文档' },
+  '图片': { kind: 'shell', shell: 'shell:My Pictures', title: '图片' },
+  'pictures': { kind: 'shell', shell: 'shell:My Pictures', title: '图片' },
+  '控制面板': { kind: 'app', app: 'control.exe', title: '控制面板' },
+  'controlpanel': { kind: 'app', app: 'control.exe', title: '控制面板' }
+};
+
+function openMode(target, opts) {
+  const key = String(target).toLowerCase();
+  const known = SHELL_TARGETS[target] || SHELL_TARGETS[key];
+  const outFile = path.join(os.tmpdir(), `codex-bridge-open-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  let script = `$ErrorActionPreference='SilentlyContinue'; $out='${outFile.replace(/'/g, "''")}'; `;
+  if (known) {
+    const titleExpect = known.title.replace(/'/g, "''");
+    script += `$before=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle} | Select-Object -ExpandProperty Id); `;
+    if (known.kind === 'shell') {
+      script += `Start-Process explorer.exe -ArgumentList '${known.shell}'; `;
+    } else {
+      script += `Start-Process '${known.app}'; `;
+    }
+    script += `Start-Sleep -Seconds 3; `;
+    script += `$after=@(Get-Process explorer -ErrorAction SilentlyContinue | Where-Object {$_.MainWindowTitle}); $newWin=$after | Where-Object {$_.Id -notin $before} | Select-Object -First 1; if (-not $newWin) { $newWin=$after | Where-Object {$_.MainWindowTitle -like '${titleExpect}*'} | Select-Object -First 1 }; `;
+    script += `if ($newWin) { $w=New-Object -ComObject WScript.Shell; $focus=$w.AppActivate($newWin.Id); [pscustomobject]@{opened=$true;pid=$newWin.Id;title=$newWin.MainWindowTitle;focus=$focus} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 } else { [pscustomobject]@{opened=$true;pid=$null;title='';focus=$false;note='窗口未在 3 秒内出现，可能被系统合并或延迟'} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 }`;
+  } else {
+    script += `$p=Start-Process '${String(target).replace(/'/g, "''")}' -PassThru -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; if ($p) { [pscustomobject]@{opened=($null -ne (Get-Process -Id $p.Id -ErrorAction SilentlyContinue));pid=$p.Id;title='';focus=$false} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 } else { [pscustomobject]@{opened=$false;pid=$null;title='';focus=$false;note='启动失败（检查路径/名称是否正确）'} | ConvertTo-Json -Compress | Out-File $out -Encoding utf8 }`;
+  }
+  spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: 45000, windowsHide: true });
+  let r = null;
+  try { if (fs.existsSync(outFile)) { r = JSON.parse(fs.readFileSync(outFile, 'utf8').replace(/^\uFEFF/, '')); fs.unlinkSync(outFile); } } catch { /* ignore */ }
+  if (!r) { console.error('[codex-bridge] open 执行失败'); process.exit(4); }
+  const name = known ? target : String(target);
+  if (r.opened) {
+    const focusText = r.focus ? '已置前' : '置前未成功（你在前台使用电脑，Windows 拦住后台抢焦点；点任务栏图标即可看到）';
+    console.log(`✅ 已打开「${name}」${r.pid ? `（PID ${r.pid} · ${r.title}）` : ''}；${focusText}`);
+    if (r.note) console.log('ℹ ' + r.note);
+  } else {
+    console.error(`❌ 打开「${name}」失败：${r.note || '未知原因'}`);
+    process.exit(5);
+  }
 }
 
 // ---------------- main ----------------
@@ -863,6 +929,11 @@ async function main() {
   if (mode === 'clean') { cleanMode(Number(positionals[0]) || 24); return; }
   if (mode === 'shot') { shotMode(positionals.length ? positionals.join(' ') : '', opts); return; }
   if (mode === 'probe') { await probeMode(opts); return; }
+  if (mode === 'open') {
+    if (positionals.length < 1) { console.error('用法: bridge.js open <回收站|此电脑|控制面板|下载|路径|网址>'); process.exit(1); }
+    openMode(positionals.join(' '), opts);
+    return;
+  }
   if (mode === 'locate') {
     if (positionals.length < 1 || !opts.target) { console.error('用法: bridge.js locate <图片> --target "<元素>"'); process.exit(1); }
     await locateMode(positionals, opts);
@@ -874,10 +945,10 @@ async function main() {
     return;
   }
   if (mode === 'click') {
-    if (positionals.length < 2) { console.error('用法: bridge.js click <x> <y> [--button right]'); process.exit(1); }
+    if (positionals.length < 2) { console.error('用法: bridge.js click <x> <y> [--button right] [--double]'); process.exit(1); }
     const [x, y] = [Number(positionals[0]), Number(positionals[1])];
     if (!Number.isFinite(x) || !Number.isFinite(y)) { console.error('坐标无效'); process.exit(1); }
-    console.log(`[codex-bridge] ${opts.delay || 3} 秒后点击屏幕 (${x},${y})${opts.button === 'right' ? '（右键）' : ''}…`);
+    console.log(`[codex-bridge] ${opts.delay == null ? 3 : opts.delay} 秒后${opts.double ? '双击' : '点击'}屏幕 (${x},${y})${opts.button === 'right' ? '（右键）' : ''}…`);
     console.log(mouseAction('click', [x, y], opts) ? '[codex-bridge] 已点击' : '[codex-bridge] 点击失败');
     return;
   }
