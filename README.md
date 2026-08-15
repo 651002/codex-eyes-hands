@@ -13,13 +13,16 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
-![Release](https://img.shields.io/badge/Release-v1.0.0-cyan)
+![Release](https://img.shields.io/badge/Release-v1.1.0-cyan)
 
 ## 能力一览
 
 | 模式 | 作用 | 实测状态 |
 |---|---|---|
-| `see` | 看图 / OCR / 多图对比 / 图片 URL | ✅ |
+| `see` | 看图 / OCR / 多图对比 / 图片 URL（**直连视觉，秒回**） | ✅ |
+| `locate` / `ocr` | UI 元素坐标定位 / 带框 OCR（JSON） | ✅ |
+| `probe` | 中转模型列表 + 视觉端点红方块自检 | ✅ |
+| `click` / `scroll` | 坐标点击 / 滚轮（视觉→行动闭环） | ⚠️ 实验性 |
 | `read` | 压缩包 / 文件夹 / 特殊格式解读（支持多目标） | ✅ |
 | `ask` | 按会话号追问，图不重发，省 token | ✅ |
 | `gen` | 生成图片并落盘 | ✅ |

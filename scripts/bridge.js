@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 const VISION_PROMPT = '仔细看这张图：详细描述画面内容，逐字转写所有可见文字（标题、正文、按钮、代码、数字、菜单等）；如果是图表/流程图/UI/文档，说明其结构和数据。不要调用任何工具或执行命令，直接输出分析结果。';
 const READ_PROMPT = '请自己想办法查看这个目标（解压压缩包、列目录、读取文本、必要时转换格式或提取二进制里的字符串），用中文总结：1) 里面有什么（文件清单/结构）；2) 重点内容。可以做只读性质的 shell 操作，不要修改原文件、不要做破坏性操作。最后直接输出总结。';
@@ -54,10 +54,20 @@ const HELP = `codex-bridge — 调用本机 Codex CLI 当眼睛和手
   clean [小时数]                         清理过期的临时图片/临时文件（默认阈值 24 小时）
   type "<文本>"                          向指定窗口键入文本（必须 --window，默认 3 秒延迟）
   key "<按键>"                           向指定窗口发送按键（SendKeys 语法，如 {ENTER} ^v；必须 --window）
+  probe                                 列出中转模型并实测视觉端点（红方块自检）
+  locate <图片> --target "<元素>"        定位 UI 元素，返回像素/归一化坐标
+  ocr <图片>                             逐块 OCR（带坐标 JSON）
+  click <x> <y> [--button right]         点击屏幕坐标（默认 3 秒延迟；动真实鼠标，先经用户确认）
+  scroll <格数>                          滚轮滚动（正=上，负=下）
 
 选项:
   --effort minimal|low|medium|high|xhigh|max|ultra   思考强度，默认 ultra（最高档）
   --backup auto|only|off     备用通道（Claude）：auto=主通道失败自动切换（默认）/ only=只用备用 / off=关闭
+  --direct on|off|only       see/locate/ocr 直连视觉（默认 on：直连失败自动回退 codex exec）
+  --crop x,y,w,h             see/locate/ocr 先裁切区域再分析
+  --zoom <倍率>              配合 --crop 放大后再分析
+  --target "<元素>"          locate 模式的目标元素描述
+  --button left|right        click 模式的按键（默认左键）
   --delay <秒>               type/key 发送按键前的延迟，默认 3
   --window <标题开头或PID>    type/key 的目标窗口（必填；聚焦失败则取消发送）
   --model <模型id>           覆盖默认模型
@@ -68,7 +78,7 @@ const HELP = `codex-bridge — 调用本机 Codex CLI 当眼睛和手
 `;
 
 function parseArgs(argv) {
-  const opts = { effort: 'ultra', backup: 'auto', delay: undefined, window: undefined, model: undefined, timeout: 300, workspace: undefined, ask: undefined, outDir: undefined, rules: undefined, tail: undefined };
+  const opts = { effort: 'ultra', backup: 'auto', delay: undefined, window: undefined, model: undefined, timeout: 300, workspace: undefined, ask: undefined, outDir: undefined, rules: undefined, tail: undefined, target: undefined, crop: undefined, zoom: undefined, direct: undefined, button: undefined };
   const positionals = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -83,6 +93,11 @@ function parseArgs(argv) {
     else if (a === '--out') opts.outDir = argv[++i];
     else if (a === '--rules') opts.rules = argv[++i];
     else if (a === '--tail') opts.tail = Number(argv[++i]);
+    else if (a === '--target') opts.target = argv[++i];
+    else if (a === '--crop') opts.crop = argv[++i].split(',').map(Number);
+    else if (a === '--zoom') opts.zoom = Number(argv[++i]);
+    else if (a === '--direct') opts.direct = argv[++i];
+    else if (a === '--button') opts.button = argv[++i];
     else if (a === '--help' || a === '-h') { console.log(HELP); process.exit(0); }
     else if (a === '--version' || a === '-V') { console.log(`codex-bridge v${VERSION}`); process.exit(0); }
     else positionals.push(a);
@@ -225,6 +240,182 @@ function readLastThread() {
     const v = fs.readFileSync(LAST_THREAD_FILE, 'utf8').trim();
     return v || null;
   } catch { return null; }
+}
+
+/** Read the current codex channel (base_url + key) from the CC Switch database. */
+function readCodexChannel() {
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const dbPath = path.join(os.homedir(), '.cc-switch', 'cc-switch.db');
+    if (!fs.existsSync(dbPath)) return null;
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const rows = db.prepare("SELECT settings_config FROM providers WHERE app_type='codex' ORDER BY is_current DESC").all();
+    db.close();
+    for (const r of rows) {
+      try {
+        const c = JSON.parse(r.settings_config);
+        const key = c.auth?.OPENAI_API_KEY;
+        const cfgText = c.config || '';
+        const m = /base_url\s*=\s*"([^"]+)"/.exec(cfgText);
+        if (key && m) return { apiKey: key, baseUrl: m[1].replace(/\/+$/, '') };
+      } catch { /* skip */ }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+const MIME_BY_EXT = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+
+/** 直连视觉：把图片发给中转的 /v1/responses 视觉端点，返回文字（不走 codex exec，快）。 */
+async function directVision(imagePath, prompt, opts) {
+  const ch = readCodexChannel();
+  if (!ch) throw new Error('无法从 CC Switch 读取 codex 通道配置');
+  const img = fs.readFileSync(imagePath);
+  const ext = path.extname(imagePath).toLowerCase();
+  const mime = MIME_BY_EXT[ext] || 'image/png';
+  const body = {
+    model: opts.model || 'gpt-5.6-sol',
+    input: [{
+      role: 'user',
+      content: [
+        { type: 'input_text', text: prompt },
+        { type: 'input_image', image_url: `data:${mime};base64,${img.toString('base64')}` }
+      ]
+    }],
+    reasoning: { effort: opts.effort === 'ultra' ? 'high' : opts.effort }
+  };
+  const res = await fetch(`${ch.baseUrl}/v1/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ch.apiKey}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(opts.timeout * 1000)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const json = await res.json();
+  const texts = [];
+  for (const item of json.output || []) {
+    for (const c of item.content || []) {
+      if (c.type === 'output_text' && c.text) texts.push(c.text);
+    }
+  }
+  const text = texts.join('\n').trim();
+  if (!text) throw new Error('视觉端点返回空文本');
+  return text;
+}
+
+/* CRC32 table for hand-rolled PNG */
+const CRC_TABLE = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** 手写一张「红色矩形」测试图（零依赖），用于 probe 自检。 */
+function makeTestPng(file) {
+  const W = 120, H = 80;
+  const rows = [];
+  for (let y = 0; y < H; y++) {
+    const row = Buffer.alloc(1 + W * 3);
+    for (let x = 0; x < W; x++) {
+      const red = x >= 25 && x <= 95 && y >= 20 && y <= 60;
+      row[1 + x * 3] = red ? 220 : 255;
+      row[1 + x * 3 + 1] = red ? 30 : 255;
+      row[1 + x * 3 + 2] = red ? 30 : 255;
+    }
+    rows.push(row);
+  }
+  const idat = require('node:zlib').deflateSync(Buffer.concat(rows));
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+    const td = Buffer.from(type, 'ascii');
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([td, data])));
+    return Buffer.concat([len, td, data, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
+  ihdr[8] = 8; ihdr[9] = 2;
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))
+  ]);
+  fs.writeFileSync(file, png);
+  return file;
+}
+
+/** 解析 PNG/JPEG/GIF 尺寸；解析不了返回 null。 */
+function imageDims(buf) {
+  try {
+    if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50) {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+    if (buf.length > 10 && buf[0] === 0x47 && buf[1] === 0x49) {
+      return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+    }
+    if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const marker = buf[i + 1];
+        if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) { i += 2; continue; }
+        if (marker === 0xd9 || marker === 0xda) break;
+        const len = buf.readUInt16BE(i + 2);
+        const sof = (marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf);
+        if (sof && len >= 7) return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+        i += 2 + len;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+/** 大图降采样：>2MB 且长边 >2560px 的图缩到 2048px。返回处理后的路径。 */
+function downscaleIfLarge(imagePath) {
+  try {
+    const buf = fs.readFileSync(imagePath);
+    if (buf.length < 2 * 1024 * 1024) return imagePath;
+    const dims = imageDims(buf);
+    if (!dims || Math.max(dims.width, dims.height) <= 2560) return imagePath;
+    const out = path.join(os.tmpdir(), `codex-bridge-rs-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+    const scale = 2048 / Math.max(dims.width, dims.height);
+    const w = Math.round(dims.width * scale);
+    const h = Math.round(dims.height * scale);
+    const script = `Add-Type -AssemblyName System.Drawing; $i=[System.Drawing.Image]::FromFile('${imagePath.replace(/'/g, "''")}'); $b=New-Object System.Drawing.Bitmap($i,${w},${h}); $b.Save('${out.replace(/'/g, "''")}'); $b.Dispose(); $i.Dispose()`;
+    const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: 60000, windowsHide: true });
+    if (r.status === 0 && fs.existsSync(out) && fs.statSync(out).size > 0) return out;
+    try { fs.unlinkSync(out); } catch { /* ignore */ }
+  } catch { /* ignore */ }
+  return imagePath;
+}
+
+/** 裁切/放大预处理。crop=[x,y,w,h]，zoom=倍率。返回处理后路径（未变则原路径）。 */
+function cropZoomImage(imagePath, crop, zoom) {
+  if (!crop && !zoom) return imagePath;
+  try {
+    const out = path.join(os.tmpdir(), `codex-bridge-cz-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+    let script = `Add-Type -AssemblyName System.Drawing; $src=[System.Drawing.Image]::FromFile('${imagePath.replace(/'/g, "''")}'); `;
+    if (crop) {
+      script += `$r=New-Object System.Drawing.Rectangle(${crop[0]},${crop[1]},${crop[2]},${crop[3]}); $bmp=$src.Clone($r,$src.PixelFormat); `;
+    } else {
+      script += `$bmp=New-Object System.Drawing.Bitmap($src); `;
+    }
+    if (zoom) {
+      script += `$b=New-Object System.Drawing.Bitmap($bmp,[int](${zoom}*$bmp.Width),[int](${zoom}*$bmp.Height)); $bmp.Dispose(); $bmp=$b; `;
+    }
+    script += `$bmp.Save('${out.replace(/'/g, "''")}'); $bmp.Dispose(); $src.Dispose()`;
+    const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: 60000, windowsHide: true });
+    if (r.status === 0 && fs.existsSync(out) && fs.statSync(out).size > 0) return out;
+    try { fs.unlinkSync(out); } catch { /* ignore */ }
+  } catch { /* ignore */ }
+  return imagePath;
 }
 
 /** Read the working Claude backup key from the CC Switch database (织境 claude 通道). */
@@ -563,9 +754,106 @@ function focusAndSend(target, keys, delay) {
   return r.status;
 }
 
+// ---------------- 视觉原语（direct / locate / ocr / probe / click / scroll） ----------------
+
+function preprocessImage(p, opts) {
+  return cropZoomImage(downscaleIfLarge(localizeImage(p)), opts.crop, opts.zoom);
+}
+
+/** 单图视觉执行：直连优先（默认），失败回退 codex exec（含 Claude 备用）。 */
+async function runVision(img, prompt, opts) {
+  const wantDirect = opts.direct === 'only' || (opts.direct !== 'off' && true);
+  if (wantDirect) {
+    try {
+      const text = await directVision(img, prompt, opts);
+      return { text: '[直连视觉]\n' + text, via: 'direct' };
+    } catch (err) {
+      if (opts.direct === 'only') throw new Error(`直连视觉失败: ${err.message}`);
+      console.error(`[codex-bridge] 直连视觉失败（${err.message}），回退 codex exec`);
+    }
+  }
+  const effort = ['-c', `model_reasoning_effort="${opts.effort}"`];
+  const r = runCodexSync(['exec', prompt, '-i', img, '-s', 'read-only', '--skip-git-repo-check', '--color', 'never', ...effort], opts);
+  if (!r.text) throw new Error(`codex 无结果（exit=${r.exit}）${r.errTail ? '\n' + r.errTail.slice(0, 300) : ''}`);
+  return { text: r.text, via: r.via };
+}
+
+async function seeMode(positionals, opts) {
+  const imgs = positionals.map((p) => preprocessImage(p, opts));
+  if (imgs.length === 1) {
+    const prompt = buildPrompt('see', imgs, opts);
+    const r = await runVision(imgs[0], prompt, opts);
+    console.log(r.text);
+    return;
+  }
+  const { text, exit, signal, errTail } = runCodexSync(buildArgs('see', imgs, opts), opts);
+  if (text) { console.log(text); return; }
+  console.error(`[codex-bridge] codex 没有产出结果（exit=${exit}, signal=${signal}）`);
+  if (errTail) console.error(`[codex-bridge] stderr 末尾:\n${errTail}`);
+  process.exit(4);
+}
+
+async function locateMode(positionals, opts) {
+  if (!opts.target) { console.error('locate 需要 --target "<目标元素描述>"'); process.exit(1); }
+  const img = preprocessImage(positionals[0], opts);
+  const prompt = `找出图中「${opts.target}」的位置。只输出一个 JSON 对象（不要任何多余文字）：{"found":true,"x":<中心像素x>,"y":<中心像素y>,"w":<宽>,"h":<高>,"norm":[<归一化0-1000中心x>,<归一化0-1000中心y>]}。找不到就输出 {"found":false}。`;
+  const r = await runVision(img, prompt, opts);
+  console.log(r.text);
+}
+
+async function ocrMode(positionals, opts) {
+  const img = preprocessImage(positionals[0], opts);
+  const prompt = `对这张图做逐块 OCR：按从上到下、从左到右输出每个文本块。只输出 JSON 数组（不要多余文字）：[{"text":"...","x":..,"y":..,"w":..,"h":..}]（像素坐标）。图中没有文字就输出 []。`;
+  const r = await runVision(img, prompt, opts);
+  console.log(r.text);
+}
+
+async function probeMode(opts) {
+  const ch = readCodexChannel();
+  if (!ch) { console.log('未找到 codex 通道（需要 CC Switch，或手动配置）'); return; }
+  console.log(`通道地址: ${ch.baseUrl}`);
+  try {
+    const res = await fetch(`${ch.baseUrl}/v1/models`, { headers: { Authorization: `Bearer ${ch.apiKey}` }, signal: AbortSignal.timeout(15000) });
+    if (res.ok) {
+      const json = await res.json();
+      const ids = (json.data || []).map((m) => m.id || m.name).filter(Boolean);
+      console.log(`可用模型（${ids.length}）: ${ids.slice(0, 30).join(', ')}`);
+    } else {
+      console.log(`模型列表请求失败: HTTP ${res.status}`);
+    }
+  } catch (err) {
+    console.log('模型列表请求失败: ' + err.message);
+  }
+  const testImg = path.join(os.tmpdir(), `codex-bridge-probe-${Date.now()}.png`);
+  makeTestPng(testImg);
+  try {
+    const text = await directVision(testImg, '这张测试图里有什么颜色和形状？一句话回答。', opts);
+    console.log('视觉自检: ' + text.slice(0, 200));
+  } catch (err) {
+    console.log('视觉自检失败: ' + err.message);
+  }
+  try { fs.unlinkSync(testImg); } catch { /* ignore */ }
+}
+
+function mouseAction(kind, args, opts) {
+  const delay = opts.delay || 3;
+  const sig = '[DllImport("user32.dll")] public static extern void mouse_event(uint d, uint dx, uint dy, uint data, System.IntPtr e);';
+  let script;
+  if (kind === 'click') {
+    const [x, y] = args;
+    const btn = opts.button === 'right' ? 'right' : 'left';
+    script = `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x},${y}); Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $down=0x0002; $up=0x0004; if ('${btn}' -eq 'right') { $down=0x0008; $up=0x0010 }; $t::mouse_event($down,0,0,0,[IntPtr]::Zero); Start-Sleep -Milliseconds 80; $t::mouse_event($up,0,0,0,[IntPtr]::Zero)`;
+  } else {
+    const ticks = args[0];
+    script = `Start-Sleep -Seconds ${delay}; $t=Add-Type -MemberDefinition '${sig}' -Name M -Namespace W -PassThru; $delta=${ticks}*120; if ($delta -ge 0) { $t::mouse_event(0x0800,0,0,[uint32]$delta,[IntPtr]::Zero) } else { $t::mouse_event(0x0800,0,0,[uint32](4294967296+$delta),[IntPtr]::Zero) }`;
+  }
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: delay * 1000 + 20000, windowsHide: true });
+  return r.status === 0;
+}
+
 // ---------------- main ----------------
 
-function main() {
+async function main() {
   const { mode, positionals, opts } = parseArgs(process.argv.slice(2));
   if (!mode) { console.error(HELP); process.exit(1); }
 
@@ -574,6 +862,33 @@ function main() {
   if (mode === 'stop') { stopWatch(); return; }
   if (mode === 'clean') { cleanMode(Number(positionals[0]) || 24); return; }
   if (mode === 'shot') { shotMode(positionals.length ? positionals.join(' ') : '', opts); return; }
+  if (mode === 'probe') { await probeMode(opts); return; }
+  if (mode === 'locate') {
+    if (positionals.length < 1 || !opts.target) { console.error('用法: bridge.js locate <图片> --target "<元素>"'); process.exit(1); }
+    await locateMode(positionals, opts);
+    return;
+  }
+  if (mode === 'ocr') {
+    if (positionals.length < 1) { console.error(HELP); process.exit(1); }
+    await ocrMode(positionals, opts);
+    return;
+  }
+  if (mode === 'click') {
+    if (positionals.length < 2) { console.error('用法: bridge.js click <x> <y> [--button right]'); process.exit(1); }
+    const [x, y] = [Number(positionals[0]), Number(positionals[1])];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { console.error('坐标无效'); process.exit(1); }
+    console.log(`[codex-bridge] ${opts.delay || 3} 秒后点击屏幕 (${x},${y})${opts.button === 'right' ? '（右键）' : ''}…`);
+    console.log(mouseAction('click', [x, y], opts) ? '[codex-bridge] 已点击' : '[codex-bridge] 点击失败');
+    return;
+  }
+  if (mode === 'scroll') {
+    const ticks = Number(positionals[0]);
+    if (!Number.isFinite(ticks)) { console.error('用法: bridge.js scroll <格数>（正=上，负=下）'); process.exit(1); }
+    console.log(`[codex-bridge] ${opts.delay || 3} 秒后滚动 ${ticks} 格…`);
+    console.log(mouseAction('scroll', [ticks], opts) ? '[codex-bridge] 已滚动' : '[codex-bridge] 滚动失败');
+    return;
+  }
+  if (mode === 'see') { await seeMode(positionals, opts); return; }
   if (mode === 'fetch') {
     if (positionals.length < 1) { console.error(HELP); process.exit(1); }
     fetchMode(positionals[0], opts);
@@ -610,7 +925,7 @@ function main() {
     return;
   }
 
-  if (!['see', 'read', 'ask', 'gen', 'hands'].includes(mode)) { console.error(`unknown mode: ${mode}\n${HELP}`); process.exit(2); }
+  if (!['read', 'ask', 'gen', 'hands'].includes(mode)) { console.error(`unknown mode: ${mode}\n${HELP}`); process.exit(2); }
   if (mode === 'hands' ? positionals.length < 2 : positionals.length < 1) { console.error(HELP); process.exit(1); }
   const { text, exit, signal, errTail } = runCodexSync(buildArgs(mode, positionals, opts), opts);
   if (text) { console.log(text); process.exit(0); }
@@ -619,4 +934,7 @@ function main() {
   process.exit(4);
 }
 
-main();
+main().catch((e) => {
+  console.error('[codex-bridge] 未处理错误: ' + (e && e.message ? e.message : e));
+  process.exit(7);
+});

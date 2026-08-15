@@ -4,10 +4,10 @@ description: >
   【能力扩展】我看不到或处理不了的内容，调用本机 Codex CLI 当「眼睛和手」：
   看（图片理解/多图对比/OCR）、读（压缩包/文件夹/特殊格式）、画（生成图片）、
   问（复用会话追问）、操作（浏览器/GUI，权限受限）、监（监督模式：下任务+盯执行+喊停纠正）、
-  屏（截屏看屏幕）、网（抓网页/联网搜索）。
+  屏（截屏看屏幕）、网（抓网页/联网搜索）、原（视觉原语：直连视觉/坐标定位/带框OCR/裁切放大/坐标点击）。
   触发：看这张图、图里是什么、帮我读图、OCR、对比这两张图、看看这个压缩包/文件夹里有什么、
   帮我生成一张图、继续追问这张图、帮我打开/操作这个网页或软件、帮我盯着它干某件事、
-  看看我屏幕现在有什么、抓一下这个网页、帮我联网查一下。
+  看看我屏幕现在有什么、抓一下这个网页、帮我联网查一下、帮我找到按钮的位置、点一下那个按钮。
 ---
 
 # Codex Bridge · 能力分身
@@ -29,7 +29,10 @@ node "C:\Users\Administrator\.codex\skills\codex-bridge\scripts\bridge.js" <模�
 
 | 模式 | 命令示例 | 说明 |
 |---|---|---|
-| `see` | `... bridge.js see "<图片1>" "<图片2>" --ask "对比这两张图"` | 看图/OCR/多图对比；多张图自动加「对比分析」指令 |
+| `see` | `... bridge.js see "<图片1>" "<图片2>" --ask "对比这两张图"` | 看图/OCR/多图对比；**默认直连视觉（秒回）**，失败自动回退 codex exec |
+| `locate` | `... bridge.js locate "<截图>" --target "提交按钮"` | 定位 UI 元素，返回像素/归一化坐标 |
+| `ocr` | `... bridge.js ocr "<图片>"` | 逐块 OCR 带坐标 JSON |
+| `probe` | `... bridge.js probe` | 列出中转模型 + 红方块自检视觉端点 |
 | `read` | `... bridge.js read "<压缩包或文件夹路径>" --ask "里面有什么"` | 解压/转换/读取并总结，只读不破坏 |
 | `ask` | `... bridge.js ask "把刚才那张图里的文字翻译成中文"` | 复用上一个 codex 会话追问，图不重发，省 token |
 | `gen` | `... bridge.js gen "一张蓝色方块的图" --out "E:\deepseek"` | 生成图片，保存到 --out 目录并回复路径 |
@@ -41,8 +44,10 @@ node "C:\Users\Administrator\.codex\skills\codex-bridge\scripts\bridge.js" <模�
 | `clean` | `... bridge.js clean 24` | 清理过期临时文件（默认阈值 24 小时） |
 | `type` | `... bridge.js type "文本" --window "窗口标题或PID"` | 向指定窗口键入文本（实验性，见模式八） |
 | `key` | `... bridge.js key "{ENTER}" --window "..."` | 向指定窗口发按键/快捷键（实验性，见模式八） |
+| `click` | `... bridge.js click 475 280` | 点击屏幕坐标（实验性，见模式九） |
+| `scroll` | `... bridge.js scroll 3` | 滚轮滚动（正=上，负=下；实验性） |
 
-公共选项：`--effort minimal|low|medium|high|xhigh|max|ultra`（默认 **ultra 最高档**：满血推理 + 自动任务委派；纯看图场景 codex 会把它折叠成 max；想省 token 才降档）、`--backup auto|only|off`（备用通道，见下）、`--model <模型id>`、`--timeout <秒>`（默认 300）、`--workspace <目录>`。
+公共选项：`--effort minimal|low|medium|high|xhigh|max|ultra`（默认 **ultra 最高档**：满血推理 + 自动任务委派；纯看图场景 codex 会把它折叠成 max；想省 token 才降档）、`--backup auto|only|off`（备用通道，见下）、`--direct on|off|only`（直连视觉，默认 on）、`--crop x,y,w,h`、`--zoom <倍率>`、`--target "<元素>"`、`--button left|right`、`--model <模型id>`、`--timeout <秒>`（默认 300）、`--workspace <目录>`。
 
 拿到 stdout 结果后，基于它继续回答用户（翻译/总结/追问分析）。结果为空或脚本报错时按「失败处理」走。
 
@@ -125,11 +130,32 @@ node "...\scripts\bridge.js" steer "<纠正指令>"                      # 自�
 - 全屏应用（游戏等）会抢占/锁住焦点，AppActivate 拉不动或秒被抢回。
 - 中文输入依赖当前输入法状态，纯 ASCII 最稳。
 
+## 模式九：视觉原语（直连 / locate / ocr / crop-zoom / click / scroll）
+
+**直连视觉（默认开启，单图适用）**：`see`/`locate`/`ocr` 默认直接调用中转的视觉端点（key 与地址运行时从 CC Switch 读），**不再启动 codex exec**——实测 4.8 秒/图（codex exec 要 20-60 秒），且几乎不受流断连影响。失败自动回退 codex exec → Claude 备用。`--direct off` 禁用、`--direct only` 强制直连。
+
+- **locate `<图>` --target "<元素>"**：返回 `{"found":true,"x":..,"y":..,"w":..,"h":..,"norm":[..,..]}`（像素 + 0-1000 归一化坐标）。
+- **ocr `<图>`**：返回 `[{"text":"..","x":..,"y":..,"w":..,"h":..}]` 带坐标 JSON。
+- **`--crop x,y,w,h` + `--zoom <倍率>`**：分析前先裁切/放大（密集截图神器）。
+- **probe**：列出中转模型 + 红方块自检视觉端点（排除故障第一步）。
+- **大图自动降采样**：>2MB 且长边 >2560px 的图自动缩到 2048px（省 token 提速）。
+
+**click / scroll（鼠标之手，实验性 ⚠️ 未实测）**：
+- `click <x> <y> [--button right]`：移动鼠标到屏幕坐标并点击（默认 3 秒延迟）。
+- `scroll <格数>`：滚轮（正=上、负=下）。
+- **使用协议**：与 type/key 相同——先经用户确认；全屏游戏抢焦点时禁用；动完用 `shot` 核验。
+- **推荐闭环**：`shot` 看屏 → `locate` 找按钮 → 用户确认坐标 → `click` → `shot` 验证。
+- ⚠️ 这两个模式**尚未实测**（动真实鼠标有风险），首次使用前必须先向用户说明目标并等确认。
+
 ## 场景速查（我该用哪个模式）
 
 | 用户诉求 | 用 |
 |---|---|
-| 发图问内容 / 对比两张图 | `see` |
+| 发图问内容 / 对比两张图 | `see`（默认直连秒回） |
+| 找按钮/元素的位置 | `locate --target` |
+| 需要带坐标的 OCR | `ocr` |
+| 图太密看不清局部 | `see --crop --zoom` |
+| 视觉出问题先排查 | `probe` |
 | 压缩包/文件夹/怪格式文件 | `read` |
 | 继续追问刚才那张图/文件 | `ask` |
 | 要我画一张图 | `gen` |
@@ -177,3 +203,5 @@ Get-Content "$env:TEMP\codex-bridge-result.txt" -Raw -Encoding UTF8
 - shot ✅（截屏 + 主通道分析通过）、fetch ✅（example.com 总结）、search ✅（主通道失败→自动切 Claude 完成）
 - 备用通道 ✅：主通道（织境中转）失败自动切 Claude（claude-sonnet-5，含视觉）；`--backup auto` 为默认
 - type/key ⚠️ 实验性：护栏（--window 聚焦失败即取消）实测有效；焦点定位受「别名启动进程」「全屏游戏抢焦点」限制，需用户配合
+- 视觉原语 ✅（2026-08-15）：probe 红方块自检通过（10 个可用模型）；直连 see 4.8 秒；locate 坐标精确命中（475,280 vs 实际 475,280）；ocr 三块文字带框全对；crop+zoom 区域放大正常；大图降采样路径就绪
+- click/scroll ⚠️ 未实测（动真实鼠标），使用前必须先经用户确认

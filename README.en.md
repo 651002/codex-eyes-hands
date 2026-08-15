@@ -16,13 +16,16 @@ the local Codex CLI (Codex desktop app, other agent frameworks).
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-blue)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A522.5-brightgreen)
-![Release](https://img.shields.io/badge/Release-v1.0.0-cyan)
+![Release](https://img.shields.io/badge/Release-v1.1.0-cyan)
 
 ## Capabilities
 
 | Mode | What it does | Tested |
 |---|---|---|
-| `see` | Image analysis / OCR / multi-image compare / image URLs | ✅ |
+| `see` | Image analysis / OCR / multi-image compare / image URLs (**direct vision, seconds**) | ✅ |
+| `locate` / `ocr` | UI element coordinates / OCR with bounding boxes (JSON) | ✅ |
+| `probe` | Relay model list + red-rectangle vision self-test | ✅ |
+| `click` / `scroll` | Coordinate click / wheel scroll (vision→action loop) | ⚠️ experimental |
 | `read` | Archives / folders / special formats (multiple targets) | ✅ |
 | `ask` | Follow-up on the last session without re-sending images | ✅ |
 | `gen` | Generate images and save them to disk | ✅ |
