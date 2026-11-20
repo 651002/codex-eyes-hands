@@ -142,3 +142,7 @@ node "C:\Users\<你>\.codex\skills\codex-bridge\scripts\bridge.js" shot "屏幕�
 ## License
 
 MIT
+
+---
+
+部分实现与设计参考 DeepSeek Harness、dsh-vision-router，简要来源见 [致谢](docs/SOURCES.md)。

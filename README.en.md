@@ -153,3 +153,7 @@ Full flow — send image → materialize file → Codex analyzes → text flows 
 ## License
 
 MIT
+
+---
+
+Implementation and design references are listed in [acknowledgements](docs/SOURCES.md).
