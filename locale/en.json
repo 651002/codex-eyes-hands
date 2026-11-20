@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Codex eyes and hands",
-    "description": "Delegate tasks and local attachments to your existing Codex. One DSH bundle; no additional Codex installation. Use /codex or codex_task."
+    "description": "One bundle reusing your Codex: task delegation, scoped cached structured vision, crop/zoom, long-image OCR, pixel diff and opt-in existing local Tesseract. Images follow your Codex provider; cache may contain private text."
   }
 }

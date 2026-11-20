@@ -1,4 +1,6 @@
-# codex-eyes-hands v2: a single DSH bundle
+# codex-eyes-hands v2.1: a single DSH bundle
+
+> **v2.1.0** adds scoped structured vision caching, crop/zoom, long-image tiling, pixel diff and opt-in existing local OCR. One bundle; no automatic engine/model installs. 41 offline tests passed; live vision and desktop use remain unverified.
 
 The v2 plugin adapts the official DeepSeek Codex provider and reuses an existing local Codex installation. It adds /codex image/file handoff and the codex_task tool without requiring a separate DSH Codex plugin. No new npm runtime dependencies are declared. See [installation and verification limits](docs/PLUGIN.md).
 

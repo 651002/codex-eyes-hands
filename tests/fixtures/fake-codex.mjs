@@ -1,4 +1,15 @@
 import readline from 'node:readline';
+if (process.argv.includes('mcp')) {
+    console.log(JSON.stringify([
+        {
+            name: 'agent-desktop'
+        },
+        {
+            name: 'private-tools'
+        }
+    ]));
+    process.exit(0);
+}
 const mode = process.env.FAKE_CODEX_MODE || 'success';
 let thread = 'thread-local', turn = 'turn-local';
 const send = (v)=>process.stdout.write(JSON.stringify(v) + '\n');
@@ -13,6 +24,11 @@ readline.createInterface({
         }
     });
     else if (m.method === 'thread/start') {
+        if (m.params.config?.['features.shell_tool'] === false) {
+            if (m.params.sandbox !== 'read-only' || Object.keys(m.params.config.mcp_servers ?? {
+                bad: true
+            }).length !== 0) throw Error('Pure vision permissions not applied');
+        }
         if (m.params.ephemeral !== true) throw Error('Not ephemeral');
         send({
             id: m.id,
@@ -33,6 +49,48 @@ readline.createInterface({
             }
         });
         if (mode === 'hang') return;
+        if (m.params.outputSchema) {
+            if (!m.params.input.some((x)=>x.type === 'localImage')) throw Error('Image not attached natively');
+            send({
+                method: 'item/completed',
+                params: {
+                    threadId: thread,
+                    turnId: turn,
+                    item: {
+                        type: 'agentMessage',
+                        text: JSON.stringify({
+                            overview: 'fixture image',
+                            text: [
+                                {
+                                    text: 'hello',
+                                    imageIndex: 0,
+                                    box: [
+                                        1,
+                                        2,
+                                        3,
+                                        4
+                                    ]
+                                }
+                            ],
+                            elements: [],
+                            uncertainties: []
+                        }),
+                        phase: 'final_answer'
+                    }
+                }
+            });
+            send({
+                method: 'turn/completed',
+                params: {
+                    threadId: thread,
+                    turn: {
+                        id: turn,
+                        status: 'completed'
+                    }
+                }
+            });
+            return;
+        }
         if (mode === 'error') {
             process.stderr.write('Bearer PRIVATE_TEST_SECRET_DO_NOT_LOG\n');
             send({

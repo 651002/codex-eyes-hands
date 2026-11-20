@@ -10,6 +10,9 @@ function harness(mode = 'success', config = {}) {
     const warnings = [];
     const skillFactories = [];
     const ctx = {
+        tools: {
+            register: ()=>()=>{}
+        },
         skills: {
             registerProvider: (f)=>skillFactories.push(f)
         },

@@ -170,6 +170,7 @@ export class CodexAppServerWire {
     input;
     permissionMode;
     model;
+    vision;
     transport;
     fatal = Promise.withResolvers();
     threadId;
@@ -188,10 +189,11 @@ export class CodexAppServerWire {
     inputEnded = false;
     terminalObserved = false;
     closed = false;
-    constructor(input, output, permissionMode, model){
+    constructor(input, output, permissionMode, model, vision){
         this.input = input;
         this.permissionMode = permissionMode;
         this.model = model;
+        this.vision = vision;
         this.transport = new JsonRpcLineTransport(input, output);
         void this.fatal.promise.catch(()=>{});
         this.transport.onRequest((method, params)=>this.handleServerRequest(method, params));
@@ -231,11 +233,17 @@ export class CodexAppServerWire {
         const response = object(await this.guarded(this.transport.request('thread/start', {
             cwd,
             ephemeral: true,
+            ...this.vision ? {
+                sandbox: 'read-only',
+                config: this.vision.config
+            } : {},
             developerInstructions: 'You are a task executor delegated by DSH. Respect the task scope and Codex permissions. Prefer an available agent-desktop MCP for desktop control. Do not recursively invoke codex-eyes-hands or codex-bridge. Never claim user authorization that was not supplied. Report verified results, output paths, and limitations.',
             ...this.model === undefined ? {} : {
                 model: this.model
             },
-            ...THREAD_PERMISSION_PARAMS[this.permissionMode]
+            ...this.vision ? {
+                approvalPolicy: 'never'
+            } : THREAD_PERMISSION_PARAMS[this.permissionMode]
         }, signal), signal), 'thread/start response');
         const thread = object(response.thread, 'thread/start thread');
         const id = string(thread.id, 'thread/start thread id');
@@ -251,11 +259,20 @@ export class CodexAppServerWire {
         try {
             const response = object(await this.guarded(this.transport.request('turn/start', {
                 threadId,
-                input: texts.map((text)=>({
-                        type: 'text',
-                        text,
-                        text_elements: []
-                    }))
+                input: [
+                    ...texts.map((text)=>({
+                            type: 'text',
+                            text,
+                            text_elements: []
+                        })),
+                    ...this.vision?.images.map((path)=>({
+                            type: 'localImage',
+                            path
+                        })) ?? []
+                ],
+                ...this.vision ? {
+                    outputSchema: this.vision.schema
+                } : {}
             }, signal), signal), 'turn/start response');
             const turn = object(response.turn, 'turn/start turn');
             this.commitTurnId(string(turn.id, 'turn/start turn id'));

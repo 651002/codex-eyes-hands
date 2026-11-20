@@ -7,7 +7,11 @@ const result = spawnSync(exe, [
     '--import',
     pathToFileURL(path.join(root, 'tests/host-bootstrap.mjs')).href,
     '--test',
-    path.join(root, 'tests/host.test.mjs')
+    ...[
+        'host.test.mjs',
+        'image.test.mjs',
+        'vision-host.test.mjs'
+    ].map((f)=>path.join(root, 'tests', f))
 ], {
     env: {
         ...process.env,

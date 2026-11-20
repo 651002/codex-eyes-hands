@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Codex 眼睛与手",
-    "description": "一个插件接入 Codex 任务与图片/文件交接；复用已有 Codex 和 MCP，不另装一串 DSH 插件。使用 /codex 或 codex_task。"
+    "description": "单个插件复用已有 Codex：codex_task 执行任务，codex_vision 纯识图；/codex see、ocr 支持会话隔离缓存、裁剪放大和长图分块；diff 像素对比；ocr-local 可选已有 Tesseract，不自动安装。识图可能发送图片到 Codex 配置的模型，缓存会保存敏感识别内容。"
   }
 }

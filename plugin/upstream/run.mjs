@@ -116,7 +116,13 @@ export async function startCodexRun(request, spec) {
     let child;
     try {
         child = spec.spawn({
-            argv: codexAppServerArgv(spec.env.CODEX_EYES_HANDS_CODEX_PATH),
+            argv: [
+                ...codexAppServerArgv(spec.env.CODEX_EYES_HANDS_CODEX_PATH),
+                ...spec.vision ? [
+                    '-c',
+                    'mcp_servers={}'
+                ] : []
+            ],
             cwd: spec.cwd,
             stdio: {
                 stdin: 'pipe',
@@ -132,7 +138,7 @@ export async function startCodexRun(request, spec) {
             category: 'unknown'
         }, thrown(error));
     }
-    const wire = new CodexAppServerWire(child.stdout, child.stdin, spec.permissionMode, spec.model);
+    const wire = new CodexAppServerWire(child.stdout, child.stdin, spec.permissionMode, spec.model, spec.vision);
     const onStderr = (chunk)=>{
         const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
         try {

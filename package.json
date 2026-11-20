@@ -1,7 +1,7 @@
 {
   "name": "dsh-codex-eyes-hands",
-  "version": "2.0.0",
-  "description": "One DSH bundle: official-based Codex delegation plus image/file handoff, reusing your existing Codex and MCP tools.",
+  "version": "2.1.0",
+  "description": "Single DSH bundle: Codex delegation, scoped structured vision cache, crop/long-image OCR, local OCR opt-in and pixel diff.",
   "type": "commonjs",
   "license": "MIT",
   "engines": {
@@ -46,7 +46,7 @@
   ],
   "scripts": {
     "build": "node scripts/build-plugin.mjs",
-    "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs",
+    "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs tests/vision.test.mjs",
     "test:host": "node scripts/test-host.mjs"
   }
 }
