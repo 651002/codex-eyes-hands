@@ -1,3 +1,11 @@
+# codex-eyes-hands v2: a single DSH bundle
+
+The v2 plugin adapts the official DeepSeek Codex provider and reuses an existing local Codex installation. It adds /codex image/file handoff and the codex_task tool without requiring a separate DSH Codex plugin. No new npm runtime dependencies are declared. See [installation and verification limits](docs/PLUGIN.md).
+
+Offline tests are not proof of live vision or desktop control. The historical v1.2.1 documentation and experimental CLI below remain for compatibility only; gateway source patches are not the v2 installation path.
+
+## Historical v1.2.1 documentation
+
 [中文](README.md) | English
 
 # codex-eyes-hands · Codex Capability-Extension Skill

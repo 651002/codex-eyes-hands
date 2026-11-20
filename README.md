@@ -1,3 +1,11 @@
+# codex-eyes-hands v2 · 单包 DSH 插件
+
+现在提供一个可安装的 DSH bundle：复用官方 Codex 子智能体实现，使用你已有的 Codex，不要求额外安装官方 Codex 插件或整套电脑插件。新增 /codex 附件交接、codex_task 委派、超时和安全失败处理；保留旧 CLI。
+
+请先阅读 [v2 安装、权限与验收限制](docs/PLUGIN.md)。版本 2.0.0 目前完成离线测试；不要把下方旧版的历史“实测通过”标记当作本次端到端验收。
+
+## 旧版 v1.2.1 文档（兼容参考，非 v2 默认后端）
+
 [English](README.en.md) | 中文
 
 # codex-eyes-hands · Codex 能力分身技能

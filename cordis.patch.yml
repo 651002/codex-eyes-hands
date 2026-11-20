@@ -1,0 +1,10 @@
+- insert:
+    - id: codex-eyes-hands
+      name: dsh-codex-eyes-hands
+      config: {}
+    - id: codex-eyes-hands-tool
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: codex-eyes-hands
+        toolName: codex_task
+        maxDepth: provider-managed

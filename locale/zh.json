@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Codex 眼睛与手",
+    "description": "一个插件接入 Codex 任务与图片/文件交接；复用已有 Codex 和 MCP，不另装一串 DSH 插件。使用 /codex 或 codex_task。"
+  }
+}

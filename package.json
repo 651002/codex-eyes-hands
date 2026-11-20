@@ -1,0 +1,52 @@
+{
+  "name": "dsh-codex-eyes-hands",
+  "version": "2.0.0",
+  "description": "One DSH bundle: official-based Codex delegation plus image/file handoff, reusing your existing Codex and MCP tools.",
+  "type": "commonjs",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24",
+    "dsh": ">=0.2.2-rc.5 <0.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/651002/codex-eyes-hands.git"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "codex",
+    "vision",
+    "computer-use"
+  ],
+  "main": "plugin/index.mjs",
+  "exports": {
+    ".": "./plugin/index.mjs",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./assets/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "plugin",
+    "assets",
+    "locale",
+    "cordis.patch.yml",
+    "scripts/bridge.js",
+    "LICENSE",
+    "vendor/deepseek-subagent-codex",
+    "README.md",
+    "README.en.md",
+    "docs/PLUGIN.md",
+    "SKILL.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build-plugin.mjs",
+    "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs",
+    "test:host": "node scripts/test-host.mjs"
+  }
+}
