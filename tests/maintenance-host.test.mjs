@@ -256,7 +256,7 @@ test('client factory registers a native localized slot (structural check, not br
     });
     const tree = component();
     assert.equal(tree.type, 'details');
-    assert.ok(JSON.stringify(tree).includes('Codex 插件管理'));
+    assert.ok(JSON.stringify(tree).includes('codex-eyes-hands 设置'));
     assert.ok(JSON.stringify(tree).includes('官方组件兼容检查'));
     assert.ok(!source.includes('document.body'));
 });

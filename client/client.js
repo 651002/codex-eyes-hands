@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
         const React = require('react'), h = React.createElement;
         const words = {
             zh: {
-                title: 'Codex 插件管理',
+                title: 'codex-eyes-hands 设置',
                 pending: '项上游变化待复查',
                 updates: '上游更新提醒',
                 check: '立即检查',
@@ -41,7 +41,7 @@ window.__ModuleLoader__.load({
                 switched: '开关操作已处理，请以下方实际运行状态为准。'
             },
             en: {
-                title: 'Codex plugin manager',
+                title: 'codex-eyes-hands settings',
                 pending: 'upstream changes to review',
                 updates: 'Upstream update reminders',
                 check: 'Check now',

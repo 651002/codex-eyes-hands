@@ -47,7 +47,7 @@ DSH 已有且可用的文件、终端、联网和电脑控制工具直接使用�
 
 ## 插件内维护入口
 
-输入框下方的“Codex 插件管理”面板展示官方终端、会话搜索、Forge和自动标题的版本、已选择与运行状态。只有用户点击确认或亲自输入命令才切换开关；模型不得通过工具自行授权启用。操作先备份当前profile配置，再调用官方管理服务；缺包或版本不符不自动下载。
+输入框下方的“codex-eyes-hands 设置”面板展示官方终端、会话搜索、Forge和自动标题的版本、已选择与运行状态。只有用户点击确认或亲自输入命令才切换开关；模型不得通过工具自行授权启用。操作先备份当前profile配置，再调用官方管理服务；缺包或版本不符不自动下载。
 
 /codex features 只读查看；/codex features enable terminal（或search、forge、titles）是用户直接控制；disable用于停用。codex_status只读查看features或updates，不能写配置。
 
