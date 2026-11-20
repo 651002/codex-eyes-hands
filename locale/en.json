@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Codex eyes and hands",
-    "description": "One bundle reusing your Codex: task delegation, scoped cached structured vision, crop/zoom, long-image OCR, pixel diff and opt-in existing local Tesseract. Images follow your Codex provider; cache may contain private text."
+    "description": "One bundle for existing Codex and structured vision. The in-plugin manager checks official component compatibility and upstream changes. Checks run in DSH every 168 hours by default, with opt-out; no Codex automation or automatic updates."
   }
 }

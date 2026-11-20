@@ -1,24 +1,30 @@
-# v2.1.0 验证结果
+# v2.2.0 验证记录
 
-日期：2026-11-20（Asia/Shanghai）。目标：Windows 官方 DSH Desktop 0.2.2-rc.5，已有 Codex CLI 0.170.0。
+目标：Windows，官方DSH 0.2.2-rc.5；日期2026-11-21。
 
-- 第一批先测试缓存和结构化接口失败，再实现并验证通过；本地提交 fcb09f6 保存该阶段。
-- 第二批先测试图像处理接口失败，再实现；修复默认重叠和宿主 schema 格式错误后通过。
-- 17项独立测试 + 24项宿主/图像集成测试，共41项。
-- 真实PNG样例验证裁剪放大、长图覆盖、原图坐标、像素变化比例与差异图；Codex输出由本地假app-server提供。
-- 结构化JSON schema、native localImage、read-only、关闭MCP/执行工具的参数在模拟协议边界断言。
-- OCR用TSV已知样例与失败子进程验证，不依赖安装真实引擎。
-- 命令结果有界放入原会话待用上下文；不自动唤醒DSH主模型。
-- 未调用收费模型、未进行桌面操作、未自动下载OCR或模型、未修改活跃DSH配置或旧会话。
+## 最终自动测试结果
 
-## 仍未验收
+69项通过、0失败：独立Node测试35项；使用安装版DSH宿主依赖和Electron Node的测试34项。界面含一次VM模拟点击验证，确保官方返回restart-required时提示重启；不等于真实浏览器渲染。
 
-运行中的DSH安装/插件界面、真实Codex视觉准确率、真实Tesseract引擎与语言包、真实电脑控制。缓存命中只表示省去新的Codex识别任务，不承诺主聊天免费。
+## 保留功能
 
-## 可复现
+此前41项缓存视觉、裁剪长图、像素差异、附件交接、Codex协议/取消/超时等回归保持通过。
 
-npm run build；npm test。宿主测试设置DSH_TEST_INSTALL_DIR为实际DSH包根目录、DSH_TEST_EXECUTABLE为其Electron/Node运行时，再npm run test:host。可设置CODEX_EYES_HANDS_TEST_ROOT到E盘测试临时目录。
+## 新增检查范围
 
-## 真实 Codex 零任务预检
+- 官方组件：只读兼容检查、不重复加载、版本/缺包拒绝、先备份、保留restart-required、未知参数拒绝。
+- 上游：成功与失败基线、相关文件过滤、冷却、并发合并、开关/周期、已读去重。
+- 宿主：原生Domain schema、owner认证、插件卸载清理、配置字节保留及ANSI恢复BAT、Client注册结构。
+- 不创建Codex定时任务；定时器属于DSH插件，默认168小时，启动30秒后检查。
 
-真实 CLI 0.170.0 完成 initialize 和只读视觉 thread/start；没有发送 turn/start，所以没有发起模型识别任务。首版逐项禁用 MCP 的覆盖方式导致 invalid transport，已改为纯视觉进程与线程使用空 MCP 注册表修复；普通任务在原配置下的真实线程创建也通过；修复后线程创建成功，并观察到该预检子进程树关闭、退出码0。此项仅验证协议/配置启动，不证明模型识图准确性。
+## 实际网络验证
+
+直接运行插件UpdateMonitor只读检查两个固定GitHub仓库，成功写入内存状态，退出码0；检测到主分支相关改动，发布仍为dsh-v0.2.2-rc.5和v3.4.0。DeepSeek比较文件数达到300时明确标记不完整，不误报无变化。未运行Codex、未调用模型、未下载安装上游，也未持久写入本机DSH状态。
+
+## 验收限制
+
+Client测试只验证工厂/locale/slot注册及结构，不是运行中DSH的真实界面验收。新插件尚未安装到运行中profile，未实际切换用户的四个组件，恢复BAT只在测试副本生成核对。视觉准确率、真实OCR引擎、真实桌面操作仍未验收。
+
+## 复现
+
+npm run build；npm test。设置DSH_TEST_INSTALL_DIR与DSH_TEST_EXECUTABLE为本机安装，再npm run test:host。测试临时目录可用CODEX_EYES_HANDS_TEST_ROOT指定到E盘。

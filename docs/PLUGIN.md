@@ -1,4 +1,4 @@
-# DSH 插件 v2.1 使用说明
+# DSH 插件 v2.2 使用说明
 
 ## 一次安装
 
@@ -86,3 +86,47 @@ diff 要附两张图片；其他视觉命令附一张。普通 /codex <任务> �
 未启动收费模型任务，未安装 Tesseract；OCR 验证覆盖 TSV 解析、缺引擎拒绝和失败子进程，不代表真实 Tesseract 引擎已验收。未在正在运行的 DSH profile 中安装新版本，插件 UI 和真实桌面仍未验收。结构化识别输出可能出错，重要数字和坐标需回查原图。缓存按配置指纹和TTL失效；模型提供方在配置不变时更换实际模型的情况不能自动检测，请用 --no-cache。
 
 真实 Codex 0.170.0 零任务预检已完成：只建只读视觉线程，不发 turn/start；逐项MCP覆盖导致的invalid transport已通过纯视觉空注册表修复，普通任务原配置对照也已通过。未修改用户全局Codex配置。
+
+
+## v2.2 插件内管理与上游提醒
+
+安装后在聊天输入框下方展开“Codex 插件管理”。面板由DSH原生Client slot承载，通信走现有认证RPC；不另开端口、不读取其他插件DOM、不创建Codex自动化。
+
+### 四个官方组件
+
+查看终端、会话搜索、Forge、自动标题。版本须与当前Host严格一致，缺包时不自动安装；“已选择但未确认运行”与“运行中”分开。用户点击启用/停用会要求明确确认，操作影响整个profile所有会话。先在E盘备份package.json与cordis.patch.yml，并生成ASCII/ANSI的一键恢复BAT，再调用DSH官方setBundleEnabled。已处于目标状态则不重复加载。原生管理结果若是restart-required，不能说已生效；请按官方提示重启。
+
+也可使用：
+
+~~~text
+/codex features
+/codex features enable terminal
+/codex features enable search
+/codex features enable forge
+/codex features enable titles
+/codex features disable titles
+~~~
+
+只有用户命令/经过确认的面板按钮拥有写入口。模型只得到只读codex_status工具。该入口不复制四套源码，也不卸载现有依赖。环境没有DSH_PROFILE_DIR时拒绝写入，避免备份错配置。
+
+### 更新提醒（指借鉴上游，不是自动更新插件本体）
+
+默认启用：启动30秒后检查一次，到期后按默认168小时周期复查；每小时醒来仅检查是否到期。插件必须在DSH中启用且DSH正在运行；离线/停机时不会运行，也没有系统定时任务。
+
+设置可在面板中关闭或改为1至720小时；“立即检查”仍有60秒冷却并合并同时请求。网络访问仅为两个固定公开GitHub仓库，读取版本、默认分支commit、相关文件差异。不读取GitHub token，不发送用户文件或会话，不使用Codex模型。
+
+界面显示上次成功检查、失败原因、待复查变化、相关文件与GitHub compare链接。确认已读跨重启保留，采用基线不会随检查自动改变。失败保留上次成功状态并退避；连续3次失败在折叠标题标记提示。
+
+~~~text
+/codex updates
+/codex updates check
+/codex updates off
+/codex updates on 24
+/codex updates ack
+~~~
+
+状态使用DSH原生storageDomain：codex_eyes_hands_maintenance。禁用/卸载插件清理定时器、RPC和在途请求，存储记录保留。不会向DSH聊天历史持续写检查日志。GitHub的compare文件数达到300时明确提示不完整，不把截断当作无变化。
+
+本轮测试覆盖后端逻辑、备份、owner认证、调度释放和Client注册结构；没有把结构测试说成运行中DSH面板渲染已验收。
+
+面板启停后会提示操作结果；若官方管理服务返回restart-required，会明确提示需要重启DSH，不把写入配置当作已经运行。

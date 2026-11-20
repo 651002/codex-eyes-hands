@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Codex 眼睛与手",
-    "description": "单个插件复用已有 Codex：codex_task 执行任务，codex_vision 纯识图；/codex see、ocr 支持会话隔离缓存、裁剪放大和长图分块；diff 像素对比；ocr-local 可选已有 Tesseract，不自动安装。识图可能发送图片到 Codex 配置的模型，缓存会保存敏感识别内容。"
+    "description": "单包接入已有Codex、缓存视觉分析与图片处理。新增输入框下方“Codex 插件管理”：官方组件兼容检查、用户确认开关及上游提醒；DSH内定时，默认168小时，可关闭，不创建Codex自动化，不自动更新。"
   }
 }

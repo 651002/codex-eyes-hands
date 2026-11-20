@@ -1,3 +1,4 @@
+import { installMaintenance } from './maintenance.mjs';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { createVisionSurface, parseVisionCommand, registerVisionTool } from './vision-integration.mjs';
 import fs from 'node:fs';
@@ -29,6 +30,7 @@ export const Config = z.object({
     disposeGraceMs: z.number().min(1).max(30000).default(3000)
 });
 export function apply(ctx, config = {}) {
+    const maintenance = installMaintenance(ctx);
     const timeoutSeconds = config.timeoutSeconds ?? 900;
     const vision = createVisionSurface(ctx, config);
     registerVisionTool(ctx, vision);
@@ -92,6 +94,8 @@ export function apply(ctx, config = {}) {
                 attachments: true
             },
             async handler (inv) {
+                const managed = await maintenance.command(inv);
+                if (managed) return managed;
                 if (inv.rawInput.trim() === 'doctor') {
                     if (inv.attachments.length) return {
                         kind: 'error',
@@ -101,7 +105,7 @@ export function apply(ctx, config = {}) {
                         return {
                             kind: 'success',
                             text: JSON.stringify({
-                                version: '2.1.0',
+                                version: '2.2.0',
                                 codex: resolveCodexCommand({
                                     codexPath: config.codexPath
                                 }),
@@ -137,8 +141,13 @@ export function apply(ctx, config = {}) {
                             artifact: result.artifact,
                             note: '结果过长；完整结果见命令输出，按原图重新核查细节。'
                         });
-                        if (Buffer.byteLength(context)>32768) context=JSON.stringify({sourceSha256:result.source?.sha256,overview:result.overview?.slice(0,2000),cache:result.cache,note:'完整结果请查看命令输出或通过 codex_vision 有针对性地重新读取。'});
-                    if (typeof inv.agent.inject === 'function') inv.agent.inject(createUserMessage({
+                        if (Buffer.byteLength(context) > 32768) context = JSON.stringify({
+                            sourceSha256: result.source?.sha256,
+                            overview: result.overview?.slice(0, 2000),
+                            cache: result.cache,
+                            note: '完整结果请查看命令输出或通过 codex_vision 有针对性地重新读取。'
+                        });
+                        if (typeof inv.agent.inject === 'function') inv.agent.inject(createUserMessage({
                             content: [
                                 {
                                     type: 'text',

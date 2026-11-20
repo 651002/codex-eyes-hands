@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-eyes-hands",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Single DSH bundle: Codex delegation, scoped structured vision cache, crop/long-image OCR, local OCR opt-in and pixel diff.",
   "type": "commonjs",
   "license": "MIT",
@@ -24,11 +24,21 @@
     ".": "./plugin/index.mjs",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./assets/icon.svg",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": "./client/client.js"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale"
+      ]
     }
   },
   "files": [
@@ -42,11 +52,13 @@
     "README.md",
     "README.en.md",
     "docs/PLUGIN.md",
-    "SKILL.md"
+    "SKILL.md",
+    "client",
+    "docs/SOURCES.md"
   ],
   "scripts": {
     "build": "node scripts/build-plugin.mjs",
-    "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs tests/vision.test.mjs",
+    "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs tests/vision.test.mjs tests/features.test.mjs tests/updates.test.mjs",
     "test:host": "node scripts/test-host.mjs"
   }
 }
