@@ -65,7 +65,7 @@ export function createMaintenanceHandler({ monitor, ownerSignal }) {
             if (endpoint === 'summary') value = monitor.load();
             else if (endpoint === 'status') value = {
                 updates: monitor.load(),
-                pluginVersion: '2.4.0'
+                pluginVersion: '2.4.1'
             };
             else if (endpoint === 'updates/check') value = await monitor.check(true, signal);
             else if (endpoint === 'updates/settings') value = await monitor.settings(payload ?? {});

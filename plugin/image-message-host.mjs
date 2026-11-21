@@ -52,11 +52,13 @@ export function installImageExperience(ctx, vision, config) {
  ctx.inject(['tools'],c=>{
   if(!c.tools)return;
   c.tools.register(defineTool({
-   name:'codex_vision_details',description:'按需读取当前会话已经完成的识图全文；不会重新调用模型。大结果按字符分页。',
-   parameters:{id:{type:'string',required:true},offset:{type:'number'},limit:{type:'number'}},
+   name:'codex_vision_details',description:'按需读取当前会话识图全文，不重新调用模型；压缩/记忆恢复后丢失id时省略id，先找回本会话最近10条摘要和编号。大结果按字符分页。',
+   parameters:{id:{type:'string'},list_offset:{type:'number',description:'省略id时的记录列表偏移；从0开始，按nextListOffset翻页，每页10条。'},offset:{type:'number'},limit:{type:'number'}},
    output:{schema:{type:'string'},render:(_args,v)=>[{type:'text',text:v}]},isConcurrencySafe:()=>true,
    execute:async(args,exec)=>{
-    if(!exec.agent)throw Error('需要当前会话');const r=service.details(args.id,String(exec.agent.id));
+    if(!exec.agent)throw Error('需要当前会话');
+    if(args.id===undefined)return JSON.stringify(service.recent(String(exec.agent.id),10,args.list_offset??0));
+    const r=service.details(args.id,String(exec.agent.id));
     const offset=args.offset??0,limit=args.limit??12000;
     if(!Number.isInteger(offset)||offset<0||!Number.isInteger(limit)||limit<1||limit>24000)throw Error('offset须非负整数，limit须1到24000');
     const text=JSON.stringify(r.full??{status:r.status,error:r.error});

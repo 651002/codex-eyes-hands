@@ -45,3 +45,9 @@
 正文保留用户原话；图片详情使用原生user-text扩展呈现，默认折叠。主模型得到概览、最多3条关键文字与不确定项；完整结构化结果保存到visionDataDir/messages。工具codex_vision_details按会话隔离分页读取，不重新调用模型。浏览器详情接口仅允许已认证owner。失败可重试识图，但不会擅自重跑整个主任务。
 
 详情和小预览最多保留约128份，新增记录时清理超过30天的旧记录；包含隐私，勿同步到GitHub。新消息图片由DSH原生附件库保存。旧临时图片预览只允许读取dsh-incoming-images目录内UUID命名的普通图片，并拒绝符号链接越界。
+
+## 上下文插件兼容（2.4.1）
+
+保留DSH原生消息id与source，通过agent/pre-step处理本轮新用户图片，不改llm/stream、不写压缩检查点、不包装全局fetch。billion-context负责其请求层压缩，Mnemon负责其记忆View。本插件不禁用/替换它们。压缩后id遗失时，codex_vision_details省略id列当前会话记录，list_offset分页；得到id再按字符offset/limit读取全文。没有编号不必重新识图。
+
+默认保留期限仍为30天/约128份，并非永久档案。跨会话/分叉会话不能仅凭回忆的id读取旧会话全文，须重新提供原图或显式另做安全迁移。检测/回归范围见CONTEXT-COMPATIBILITY.md。

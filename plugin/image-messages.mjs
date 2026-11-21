@@ -33,6 +33,18 @@ export class ImageMessages {
   if(sessionId!==undefined&&record.sessionId!==String(sessionId))throw Error('识图记录不属于当前会话');
   return record;
  }
+ recent(sessionId,limit=10,offset=0) {
+  if(typeof sessionId!=='string'||!sessionId.trim())throw Error('需要当前会话');
+  if(!Number.isInteger(limit)||limit<1||limit>20)throw Error('limit须1到20');
+  if(!Number.isSafeInteger(offset)||offset<0)throw Error('列表偏移须为非负整数');
+  const records=[];
+  if(fs.existsSync(this.directory))for(const file of fs.readdirSync(this.directory)){
+   if(!/^[a-f0-9]{64}\.json$/.test(file))continue;
+   try{const r=this.details(file.slice(0,-5),sessionId);records.push({id:r.id,status:r.status,summary:r.summary?.summary??'暂无摘要',updatedAt:r.updatedAt});}catch{}
+  }
+  records.sort((a,b)=>(b.updatedAt??0)-(a.updatedAt??0));
+  return {records:records.slice(offset,offset+limit),totalAvailable:records.length,nextListOffset:offset+limit<records.length?offset+limit:null,note:'仅本会话仍保留的识图记录；不重新识图。详情有保留期限，缺失时须重传原图，不可猜测。'};
+ }
  view(id) { const r=this.details(id);const interrupted=r.status==='pending'&&!this.active.has(id)&&!this.pending.has(id);return {id:r.id,status:interrupted?'cancelled':r.status,summary:r.summary,error:interrupted?'上次识图已中断，可重试':r.error,preview:r.preview,updatedAt:r.updatedAt}; }
  async legacyView(text,signal) {
   signal?.throwIfAborted();const p=parseLegacyImage(text);if(!p)throw Error('不是可恢复的图片附件');

@@ -68,3 +68,22 @@ test('retry is explicit, coalesces concurrent clicks and keeps full results sess
  fail=false;const a=service.retry(id,agent,input.signal),b=service.retry(id,agent,input.signal);release();await Promise.all([a,b]);assert.equal(runs,2);assert.equal(service.details(id,agent.id).status,'done');
  await service.retry(id,agent,input.signal);assert.equal(runs,2);await assert.rejects(service.retry(id,{id:'different'},input.signal),/会话/);
 });
+
+test('after a compressor drops opaque image ids, current-session lookup recovers handles without another model call',async()=>{
+ const dir=fs.mkdtempSync(path.join(base,'compressed-lookup-'));let calls=0;
+ const service=new ImageMessages({directory:dir,attachments:()=>({}),vision:async()=>{calls++;assert.fail('lookup must not invoke a model');}});
+ const record=service.record({overview:'安装截图：缺少依赖',text:[{text:'ERR_MODULE_NOT_FOUND'}],uncertainties:[]},'long-session');
+ service.record({overview:'另一个会话的机密',text:[]},'other-session');
+ const reopened=new ImageMessages({directory:dir,attachments:()=>({}),vision:async()=>assert.fail()});
+ const found=reopened.recent('long-session');assert.equal(found.records.length,1);assert.equal(found.records[0].id,record.id);assert.equal(found.records[0].summary,'安装截图：缺少依赖');assert.ok(!JSON.stringify(found).includes('机密'));
+ assert.equal(reopened.details(found.records[0].id,'long-session').full.text[0].text,'ERR_MODULE_NOT_FOUND');assert.equal(calls,0);
+ assert.equal(reopened.recent('empty-session').records.length,0);assert.throws(()=>reopened.recent(''),/会话/);
+});
+
+test('recovered picture handles can be paged in long sessions without exposing another session',()=>{
+ const dir=fs.mkdtempSync(path.join(base,'lookup-pages-'));const s=new ImageMessages({directory:dir});
+ for(let i=0;i<12;i++)s.record({overview:'picture-'+i,text:[]},'paging');
+ const a=s.recent('paging'),b=s.recent('paging',10,a.nextListOffset);
+ assert.equal(a.records.length,10);assert.equal(b.records.length,2);assert.equal(b.nextListOffset,null);assert.equal(new Set([...a.records,...b.records].map(x=>x.id)).size,12);
+ assert.throws(()=>s.recent('paging',10,-1),/偏移/);assert.throws(()=>s.recent('paging',100),/limit/);
+});
