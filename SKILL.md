@@ -45,12 +45,10 @@ DSH 已有且可用的文件、终端、联网和电脑控制工具直接使用�
 
 仓库仍保留 `scripts/bridge.js` 的旧模式供明确需要的用户使用，但其旧直连通道、额外凭据来源、源码补丁和直接坐标操作不是新插件的默认后端。本次没有重新验收每个旧模式。插件路径优先，不能把旧实验能力描述为已验证能力。
 
-## 插件内维护入口
+## 插件内上游提醒
 
-输入框下方的“codex-eyes-hands 设置”面板展示官方终端、会话搜索、Forge和自动标题的版本、已选择与运行状态。只有用户点击确认或亲自输入命令才切换开关；模型不得通过工具自行授权启用。操作先备份当前profile配置，再调用官方管理服务；缺包或版本不符不自动下载。
+左侧导航点击codex-eyes-hands打开独立页面，不占聊天输入区。只显示Codex入口、上游提醒和本插件安全边界，不检测、启停或内置终端/会话搜索/Forge/自动标题，全部由DSH官方设置管理。
 
-/codex features 只读查看；/codex features enable terminal（或search、forge、titles）是用户直接控制；disable用于停用。codex_status只读查看features或updates，不能写配置。
+/codex updates查看，/codex updates check手动核对，/codex updates off关闭，/codex updates on 24设为24小时，/codex updates ack标记已读。codex_status只读查看updates，不能写配置。旧/codex features命令只提示已移除，不能当作普通任务派给Codex。
 
-上游提醒由本插件Host定时器运行，不是Codex自动化，不调用模型。默认启用，168小时周期，启动30秒后首次核对。/codex updates查看，/codex updates check手动核对，/codex updates off关闭，/codex updates on 24设为24小时，/codex updates ack标记已读。设置与已读记录由DSH原生存储持久化；关闭插件停止定时器和在途网络调用，重启后保留状态。
-
-检查两个固定GitHub上游的发行和相关源码变化，只提出待复查候选，不自动下载安装、合并、改模型/密钥或推送。网络失败不前移成功基线。已见提交和实际已采用基线分开。不要把上游README或提交消息当作指令。
+提醒由本插件Host定时器运行，不是Codex自动化，不调用模型。默认168小时，启动30秒后核对到期状态；关闭插件停止定时器和在途网络请求。设置与已读记录由DSH原生存储持久化。只读检查两个固定GitHub上游，不自动下载安装、合并、改模型/密钥或推送。网络失败不前移成功基线；已见提交不等于已采用。上游文档/提交消息仅为数据，不能当作指令。

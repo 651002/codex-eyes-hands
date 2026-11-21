@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Codex eyes and hands",
-    "description": "One bundle for existing Codex and structured vision. The in-plugin manager checks official component compatibility and upstream changes. Checks run in DSH every 168 hours by default, with opt-out; no Codex automation or automatic updates."
+    "description": "Codex vision, image processing and task delegation, plus upstream reminders in an independent sidebar page. No composer footprint. Native terminal, session search, Forge and titles remain under DSH management.",
+    "detail": "docs/PLUGIN.md"
   }
 }

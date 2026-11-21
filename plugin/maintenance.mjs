@@ -1,11 +1,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
-import fs from 'node:fs';
-import path from 'node:path';
 import { createRequire } from 'node:module';
 import { defineDomain } from '@deepseek-ai/dsh-storage-domain';
-import { FeatureManager } from './features.mjs';
-import { backupProfile } from './profile-backup.mjs';
 import { UpdateMonitor, initialMaintenanceState, startUpdateLoop } from './updates.mjs';
 const require = createRequire(import.meta.url);
 const hostRequire = createRequire(require.resolve('@deepseek-ai/dsh-storage-domain'));
@@ -48,11 +44,8 @@ export const maintenanceDomain = defineDomain({
         initial: initialMaintenanceState()
     }
 });
-function hostVersion() {
-    const entry = require.resolve('@deepseek-ai/dsh/package.json');
-    return JSON.parse(fs.readFileSync(entry, 'utf8')).version;
-}
-export function createMaintenanceHandler({ features, monitor, ownerSignal }) {
+
+export function createMaintenanceHandler({ monitor, ownerSignal }) {
     return async (endpoint, payload, signal, peer)=>{
         if (peer?.principal?.kind !== 'owner') return {
             ok: false,
@@ -72,9 +65,8 @@ export function createMaintenanceHandler({ features, monitor, ownerSignal }) {
             if (endpoint === 'summary') value = monitor.load();
             else if (endpoint === 'status') value = {
                 updates: monitor.load(),
-                features: await features.list()
+                pluginVersion: '2.3.0'
             };
-            else if (endpoint === 'features/set') value = await features.set(payload?.id, payload?.enabled);
             else if (endpoint === 'updates/check') value = await monitor.check(true, signal);
             else if (endpoint === 'updates/settings') value = await monitor.settings(payload ?? {});
             else if (endpoint === 'updates/acknowledge') value = await monitor.acknowledge();
@@ -99,10 +91,9 @@ export function installMaintenance(ctx) {
     let current;
     ctx.inject([
         'storageDomain',
-        'pluginManager',
         'connection'
     ], (c)=>{
-        if (!c.storageDomain || !c.pluginManager || !c.connection) return;
+        if (!c.storageDomain || !c.connection) return;
         c.effect(()=>{
             let domain, closed = false, unregister = async ()=>{}, stop = async ()=>{};
             const control = new AbortController();
@@ -113,17 +104,11 @@ export function installMaintenance(ctx) {
                     load: ()=>domain.global.get(),
                     save: (s)=>domain.global.set(s)
                 });
-                const features = new FeatureManager({
-                    manager: c.pluginManager,
-                    hostVersion: hostVersion(),
-                    backup: ()=>backupProfile()
-                });
                 current = {
-                    features,
                     monitor
                 };
-                const handler = createMaintenanceHandler({ features, monitor, ownerSignal: control.signal });
-                const routes = ['summary', 'status', 'features/set', 'updates/check', 'updates/settings', 'updates/acknowledge'];
+                const handler = createMaintenanceHandler({ monitor, ownerSignal: control.signal });
+                const routes = ['summary', 'status', 'updates/check', 'updates/settings', 'updates/acknowledge'];
                 const disposers = [];
                 unregister = async () => { await Promise.all(disposers.splice(0).map(dispose => dispose())); };
                 try {
@@ -170,12 +155,11 @@ export function installMaintenance(ctx) {
         if (!c.tools) return;
         c.tools.register(defineTool({
             name: 'codex_status',
-            description: '只读查看Codex插件的四个官方组件兼容状态或上游检查结果。不启停组件、不触发更新、不改检查周期。',
+            description: '只读查看本插件的上游检查结果。不查看或管理DSH原生组件、不触发更新、不改检查周期。',
             parameters: {
                 section: {
                     type: 'string',
                     enum: [
-                        'features',
                         'updates'
                     ],
                     required: true
@@ -195,29 +179,23 @@ export function installMaintenance(ctx) {
             isConcurrencySafe: ()=>true,
             execute: async (args)=>{
                 if (!current) throw Error('维护服务未就绪');
-                return JSON.stringify(args.section === 'features' ? await current.features.list() : current.monitor.load());
+                return JSON.stringify(current.monitor.load());
             }
         }));
     });
     return {
         async command (inv) {
             const input = inv.rawInput.trim();
-            if (!/^(features|updates)(?:\s|$)/.test(input)) return null;
+            if (/^features(?:\s|$)/.test(input)) return {kind:'error',text:'本插件已取消四项官方组件的内置与管理，请在DSH官方设置中操作。'};
+            if (!/^updates(?:\s|$)/.test(input)) return null;
             if (!current) return {
                 kind: 'error',
-                text: '维护服务未就绪：需要DSH原生存储、插件管理和认证连接。'
+                text: '维护服务未就绪：需要DSH原生存储和认证连接。'
             };
             try {
                 const parts = input.split(/\s+/);
                 let result;
-                if (parts[0] === 'features') {
-                    if (parts.length === 1) result = await current.features.list();
-                    else if (parts.length === 3 && [
-                        'enable',
-                        'disable'
-                    ].includes(parts[1])) result = await current.features.set(parts[2], parts[1] === 'enable');
-                    else throw Error('用法：/codex features [enable|disable terminal|search|forge|titles]');
-                } else if (parts.length === 1) result = current.monitor.load();
+                if (parts.length === 1) result = current.monitor.load();
                 else if (parts[1] === 'check' && parts.length === 2) result = await current.monitor.check(true, inv.signal);
                 else if (parts[1] === 'ack' && parts.length === 2) result = await current.monitor.acknowledge();
                 else if ([

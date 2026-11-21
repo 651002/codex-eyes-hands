@@ -225,3 +225,9 @@ test('bundled safe Skill is served without changing legacy files', async ()=>{
     assert.match(skill.content, /^---\r?\nname: codex-eyes-hands\r?\n/);
     assert.ok(skill.path.endsWith('SKILL.md'));
 });
+
+test('removed features command returns guidance instead of delegating a Codex task',async()=>{
+    const h=harness();h.ctx.subagents.startActivation=()=>assert.fail('Removed command must not become a model task');
+    const result=await h.commands.get('codex').handler({rawInput:'features disable terminal',attachments:[],agent:{},signal:new AbortController().signal});
+    assert.equal(result.kind,'error');assert.ok(result.text.includes('取消'));assert.ok(result.text.includes('DSH官方设置'));
+});

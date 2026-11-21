@@ -105,7 +105,7 @@ export function apply(ctx, config = {}) {
                         return {
                             kind: 'success',
                             text: JSON.stringify({
-                                version: '2.2.2',
+                                version: '2.3.0',
                                 codex: resolveCodexCommand({
                                     codexPath: config.codexPath
                                 }),

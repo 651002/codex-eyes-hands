@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Codex 眼睛与手",
-    "description": "单包接入已有Codex、缓存视觉分析与图片处理。新增输入框下方“codex-eyes-hands 设置”：官方组件兼容检查、用户确认开关及上游提醒；DSH内定时，默认168小时，可关闭，不创建Codex自动化，不自动更新。"
+    "description": "Codex识图、图片处理与任务委派，左侧独立页面展示上游更新提醒，不占聊天输入区。不内置、不检测或管理终端、会话搜索、Forge及自动标题；这些功能由DSH官方管理。",
+    "detail": "docs/PLUGIN.md"
   }
 }

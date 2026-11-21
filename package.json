@@ -1,12 +1,12 @@
 {
   "name": "dsh-codex-eyes-hands",
-  "version": "2.2.2",
-  "description": "Single DSH bundle: Codex delegation, scoped structured vision cache, crop/long-image OCR, local OCR opt-in and pixel diff.",
+  "version": "2.3.0",
+  "description": "Codex vision and task delegation with an independent sidebar page and in-plugin upstream reminders; native DSH features are not managed.",
   "type": "commonjs",
   "license": "MIT",
   "engines": {
     "node": ">=24",
-    "dsh": ">=0.2.2-rc.5 <0.3.0"
+    "dsh": "0.2.2-rc.5"
   },
   "repository": {
     "type": "git",
@@ -35,7 +35,8 @@
       "platform": "web",
       "immediately": true,
       "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-locale"
       ]
@@ -58,7 +59,7 @@
   ],
   "scripts": {
     "build": "node scripts/build-plugin.mjs",
-    "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs tests/vision.test.mjs tests/features.test.mjs tests/updates.test.mjs",
+    "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs tests/vision.test.mjs tests/updates.test.mjs",
     "test:host": "node scripts/test-host.mjs"
   },
   "peerDependencies": {

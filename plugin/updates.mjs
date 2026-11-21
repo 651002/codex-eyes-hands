@@ -13,10 +13,6 @@ export const UPSTREAMS = [
             'packages/core/tools/',
             'packages/sdk/protocol/',
             'packages/client/client-connection/',
-            'packages/experimental/terminal-bundle/',
-            'packages/experimental/session-search/',
-            'packages/experimental/forge',
-            'packages/experimental/session-titles',
             'docs/upgrade-guide/'
         ]
     },

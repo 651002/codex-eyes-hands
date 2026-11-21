@@ -1,25 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { createMaintenanceHandler, maintenanceDomain, installMaintenance } from '../plugin/maintenance.mjs';
 import { initialMaintenanceState, UpdateMonitor, startUpdateLoop } from '../plugin/updates.mjs';
-import { backupProfile } from '../plugin/profile-backup.mjs';
-const parent = process.env.CODEX_EYES_HANDS_TEST_ROOT || path.join(os.tmpdir(), 'codex-eyes-hands-tests');
-fs.mkdirSync(parent, {
-    recursive: true
-});
-const dir = fs.mkdtempSync(path.join(parent, 'maintenance-'));
-test.after(()=>{
-    const r = path.relative(parent, dir);
-    if (r && !r.startsWith('..') && !path.isAbsolute(r)) fs.rmSync(dir, {
-        recursive: true,
-        force: true
-    });
-});
 test('authenticated maintenance channel refuses non-owner writes and reads', async ()=>{
     const h = createMaintenanceHandler({
         features: {
@@ -69,7 +55,7 @@ test('settings and manual checks use the shared owner-only service', async ()=>{
         principal: {
             kind: 'owner'
         }
-    })).value.features.length, 0);
+    })).value.updates.intervalHours, 24);
 });
 test('unloading owner cancels future RPC work rather than mutating state', async ()=>{
     const control = new AbortController();
@@ -96,34 +82,8 @@ test('official domain schema rejects malformed settings and supports reopened st
         }));
     assert.equal(maintenanceDomain.name, 'codex_eyes_hands_maintenance');
 });
-test('configuration backup preserves original bytes and produces ANSI restore BAT', async ()=>{
-    const profile = path.join(dir, 'profile');
-    fs.mkdirSync(profile);
-    const original = Buffer.from('{"keep":"会话配置不动"}\n');
-    fs.writeFileSync(path.join(profile, 'package.json'), original);
-    fs.writeFileSync(path.join(profile, 'cordis.patch.yml'), '# 原配置\n');
-    const result = await backupProfile({
-        profile,
-        root: path.join(dir, 'backup'),
-        now: new Date('2026-11-21T00:00:00+08:00')
-    });
-    assert.equal(result.length, 2);
-    assert.deepEqual(fs.readFileSync(result[0].backup), original);
-    assert.deepEqual(fs.readFileSync(result[0].source), original);
-    for (const r of result){
-        const bat = fs.readFileSync(r.restore);
-        assert.ok([
-            ...bat
-        ].every((b)=>b < 128));
-        assert.ok(bat.toString().includes('EncodedCommand'));
-    }
-});
-test('missing profile refuses backup rather than guessing another config', async ()=>{
-    await assert.rejects(backupProfile({
-        profile: '',
-        root: path.join(dir, 'backup')
-    }), /DSH_PROFILE_DIR/);
-});
+
+
 test('scheduler belongs to plugin and stops timers on disposal', async ()=>{
     let callback, cleared = false, calls = 0;
     const stop = startUpdateLoop({
@@ -164,7 +124,7 @@ test('maintenance initialization and disposal release native domain and RPC', as
         logger: {
             warn: ()=>{}
         },
-        inject: (_d, fn)=>fn(ctx),
+        inject: (deps, fn)=>{ assert.ok(!deps.includes('pluginManager')); fn(ctx); },
         effect: (fn)=>{
             cleanup = fn();
         },
@@ -188,10 +148,10 @@ test('maintenance initialization and disposal release native domain and RPC', as
     };
     installMaintenance(ctx);
     await new Promise((r)=>setImmediate(r));
-    assert.equal(registered, 6);
+    assert.equal(registered, 5);
     await cleanup();
     assert.equal(closed, 1);
-    assert.equal(removed, 6);
+    assert.equal(removed, 5);
 });
 test('client factory registers a native localized slot (structural check, not browser rendering)', ()=>{
     let module, component;
@@ -249,56 +209,37 @@ test('client factory registers a native localized slot (structural check, not br
         slots: {
             inject: (_n, fn)=>fn(),
             register: (d, c)=>{
-                assert.equal(d.name, 'conversation.composer.dock');
-                component = c;
+                assert.ok(['main', 'sidebar.panellist'].includes(d.name));
+                if (d.name === 'main') component = c;
             }
         }
     });
     const tree = component();
-    assert.equal(tree.type, 'details');
-    assert.ok(JSON.stringify(tree).includes('codex-eyes-hands 设置'));
-    assert.ok(JSON.stringify(tree).includes('官方组件兼容检查'));
+    assert.equal(tree.type, 'main');
+    assert.ok(JSON.stringify(tree).includes('codex-eyes-hands'));
+    assert.ok(JSON.stringify(tree).includes('上游更新提醒'));
+    assert.ok(!JSON.stringify(tree).includes('四项内置功能'));
+    assert.ok(!source.includes('features/set'));
     assert.ok(!source.includes('document.body'));
+    assert.ok(!source.includes('conversation.composer.dock'));
+    assert.ok(source.includes("name:'main',key:PANEL"));
+    assert.ok(source.includes("name:'sidebar.panellist',id:PANEL"));
 });
 
-test('client surfaces official restart-required result (VM interaction, not browser rendering)', async () => {
-    let module, component, hook = 0, done;
-    const writes = [];
-    const finished = new Promise(resolve => { done = resolve; });
-    const updates = initialMaintenanceState();
-    const features = [{id: 'terminal', enabled: false, canEnable: true, status: 'disabled', version: '0.2.2-rc.5'}];
-    const React = {
-        createElement: (type, props, ...children) => ({type, props, children}),
-        useSyncExternalStore: () => ({}),
-        useState: initial => {
-            const index = hook++;
-            return [index === 0 ? updates : index === 1 ? {updates, features} : initial,
-                value => { writes.push(value); if (index === 3 && value === false) done(); }];
-        },
-        useEffect: () => {}, Fragment: 'fragment'
-    };
-    vm.runInNewContext(fs.readFileSync(new URL('../client/client.js', import.meta.url), 'utf8'), {
-        window: {confirm: () => true, __ModuleLoader__: {load: value => { module = value; }}},
-        setTimeout, clearTimeout
-    });
-    const words = {};
-    module.factory(() => React).apply({
-        effect: fn => fn(),
-        locale: {register: (_name, value) => Object.assign(words, value), bind: () => key => words.zh[key], subscribe: () => () => {}, getSnapshot: () => ({})},
-        connection: {rpc: {call: async (channel, endpoint) => { assert.equal(channel, '/api'); assert.ok(endpoint.startsWith('codex-eyes-hands/')); return {ok: true, value: endpoint === 'codex-eyes-hands/features/set' ? {application: 'restart-required'} : {updates, features}}; }}},
-        slots: {inject: (_name, fn) => fn(), register: (_descriptor, view) => { component = view; }}
-    });
-    function find(node) {
-        if (Array.isArray(node)) return node.map(find).find(Boolean);
-        if (!node || typeof node !== 'object') return;
-        if (node.type === 'button' && node.children.includes('启用')) return node;
-        return find(node.children);
-    }
-    const button = find(component());
-    assert.ok(button);
-    button.props.onClick();
-    await finished;
-    assert.ok(writes.includes('配置已保存，需要重启 DSH 才会生效。'));
+test('client update actions use its own namespace and never mutate native components',async()=>{
+    let module,component,hook=0,done;
+    const writes=[],calls=[],finished=new Promise(resolve=>{done=resolve;});
+    const updates=initialMaintenanceState();
+    const React={createElement:(type,props,...children)=>({type,props,children}),useSyncExternalStore:()=>({}),useEffect:()=>{},Fragment:'fragment',
+        useState:initial=>{const i=hook++;return [i===0?updates:i===1?{updates,pluginVersion:'2.3.0'}:initial,value=>{writes.push(value);if(i===3&&value===false)done();}];}};
+    vm.runInNewContext(fs.readFileSync(new URL('../client/client.js',import.meta.url),'utf8'),{window:{__ModuleLoader__:{load:value=>{module=value;}}},setTimeout,clearTimeout});
+    const words={};module.factory(()=>React).apply({effect:fn=>fn(),locale:{register:(_n,value)=>Object.assign(words,value),bind:()=>key=>words.zh[key],subscribe:()=>()=>{},getSnapshot:()=>({})},
+        connection:{rpc:{call:async(channel,endpoint)=>{calls.push({channel,endpoint});return {ok:true,value:endpoint.endsWith('/status')?{updates,pluginVersion:'2.3.0'}:updates};}}},
+        slots:{inject:(_n,fn)=>fn(),register:(d,c)=>{if(d.name==='main')component=c;}}});
+    function find(n){if(Array.isArray(n))return n.map(find).find(Boolean);if(!n||typeof n!=='object')return;if(n.type==='button'&&n.children.includes('立即检查'))return n;return find(n.children);}
+    const button=find(component());assert.ok(button);button.props.onClick();await finished;
+    assert.deepEqual(calls,[{channel:'/api',endpoint:'codex-eyes-hands/updates/check'},{channel:'/api',endpoint:'codex-eyes-hands/status'}]);
+    assert.ok(writes.includes('操作已处理，请以上次成功检查时间为准。'));
 });
 
 test('desktop shared API serves maintenance RPC and enforces owner access', async () => {
@@ -335,4 +276,22 @@ test('desktop shared API serves maintenance RPC and enforces owner access', asyn
     } finally { await cleanup(); }
     const removed = await api.fetch(request(), native.browserPeer);
     assert.equal(removed.status, 404);
+});
+
+test('cancelled feature management endpoint cannot read or mutate native features',async()=>{
+    let writes=0;
+    const handler=createMaintenanceHandler({monitor:{load:()=>initialMaintenanceState()},features:{set:async()=>{writes++;return 'changed';},list:async()=>['terminal']}});
+    const result=await handler('features/set',{id:'terminal',enabled:false},undefined,{principal:{kind:'owner'}});
+    assert.equal(result.ok,false);
+    assert.equal(writes,0);
+    const status=await handler('status',{},undefined,{principal:{kind:'owner'}});
+    assert.equal(Object.hasOwn(status.value,'features'),false);
+});
+test('bundle patch contains only Codex entries and never overrides native title updater',()=>{
+    const host=createRequire(path.join(process.env.DSH_TEST_INSTALL_DIR,'package.json'));
+    const {composeEntries,loadOverlayPatches}=host('@deepseek-ai/dsh-app-boot');
+    const patch=loadOverlayPatches('test',new URL('../cordis.patch.yml',import.meta.url).pathname.replace(/^\//,''));
+    const rows=composeEntries([[{insert:[{id:'session-title-llm',name:'stock-title'}]},...patch]]);
+    assert.equal(rows.find(r=>r.id==='session-title-llm').disabled,undefined);
+    assert.deepEqual(rows.filter(r=>r.id!=='session-title-llm').map(r=>r.id),['codex-eyes-hands','codex-eyes-hands-tool']);
 });
