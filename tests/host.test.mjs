@@ -218,9 +218,10 @@ test('bundled safe Skill is served without changing legacy files', async ()=>{
     const h = harness();
     const provider = h.skillFactories[0]();
     const [candidate] = await provider.list();
-    assert.equal(candidate.name, 'codex-bridge');
+    assert.equal(candidate.name, 'codex-eyes-hands');
     const skill = await provider.get(candidate, {});
     assert.ok(skill.content.includes('不替用户宣称全权授权'));
     assert.ok(skill.content.includes('codex_task'));
+    assert.match(skill.content, /^---\r?\nname: codex-eyes-hands\r?\n/);
     assert.ok(skill.path.endsWith('SKILL.md'));
 });

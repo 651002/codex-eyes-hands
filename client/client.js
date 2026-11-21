@@ -91,7 +91,7 @@ window.__ModuleLoader__.load({
                     React.useSyncExternalStore((cb)=>ctx.locale.subscribe(cb), ()=>ctx.locale.getSnapshot(), ()=>ctx.locale.getSnapshot());
                     const [state, setState] = React.useState(null), [full, setFull] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false), [hours, setHours] = React.useState('168'), [notice, setNotice] = React.useState('');
                     const call = async (endpoint, payload = {}, signal)=>{
-                        const r = await ctx.connection.rpc.call('/codex-eyes-hands', endpoint, payload, signal);
+                        const r = await ctx.connection.rpc.call('/api', 'codex-eyes-hands/' + endpoint, payload, signal);
                         if (!r.ok) throw Error(r.error.message);
                         return r.value;
                     };

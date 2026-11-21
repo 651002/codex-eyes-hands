@@ -176,8 +176,8 @@ test('maintenance initialization and disposal release native domain and RPC', as
             listPlugins: async ()=>[]
         },
         connection: {
-            rpc: {
-                handle: ()=>{
+            fetch: {
+                register: ()=>{
                     registered++;
                     return async ()=>{
                         removed++;
@@ -188,10 +188,10 @@ test('maintenance initialization and disposal release native domain and RPC', as
     };
     installMaintenance(ctx);
     await new Promise((r)=>setImmediate(r));
-    assert.equal(registered, 1);
+    assert.equal(registered, 6);
     await cleanup();
     assert.equal(closed, 1);
-    assert.equal(removed, 1);
+    assert.equal(removed, 6);
 });
 test('client factory registers a native localized slot (structural check, not browser rendering)', ()=>{
     let module, component;
@@ -285,7 +285,7 @@ test('client surfaces official restart-required result (VM interaction, not brow
     module.factory(() => React).apply({
         effect: fn => fn(),
         locale: {register: (_name, value) => Object.assign(words, value), bind: () => key => words.zh[key], subscribe: () => () => {}, getSnapshot: () => ({})},
-        connection: {rpc: {call: async (_channel, endpoint) => ({ok: true, value: endpoint === 'features/set' ? {application: 'restart-required'} : {updates, features}})}},
+        connection: {rpc: {call: async (channel, endpoint) => { assert.equal(channel, '/api'); assert.ok(endpoint.startsWith('codex-eyes-hands/')); return {ok: true, value: endpoint === 'codex-eyes-hands/features/set' ? {application: 'restart-required'} : {updates, features}}; }}},
         slots: {inject: (_name, fn) => fn(), register: (_descriptor, view) => { component = view; }}
     });
     function find(node) {
@@ -299,4 +299,40 @@ test('client surfaces official restart-required result (VM interaction, not brow
     button.props.onClick();
     await finished;
     assert.ok(writes.includes('配置已保存，需要重启 DSH 才会生效。'));
+});
+
+test('desktop shared API serves maintenance RPC and enforces owner access', async () => {
+    const host = createRequire(path.join(process.env.DSH_TEST_INSTALL_DIR, 'package.json'));
+    const {Context} = host('@deepseek-ai/cordis');
+    const {HostConnectionService} = host('@deepseek-ai/dsh-client-connection');
+    const native = new HostConnectionService(new Context(), [], {});
+    let cleanup, state = initialMaintenanceState();
+    const domain = {global: {get: () => state, set: async s => {state = s;}}, close: async () => {}};
+    const ctx = {
+        logger: {warn: () => {}}, inject: (_deps, f) => f(ctx), effect: f => {cleanup = f();},
+        storageDomain: {open: async () => domain},
+        pluginManager: {listBundles: async () => [], listPlugins: async () => []},
+        connection: native,
+    };
+    installMaintenance(ctx);
+    await new Promise(resolve => setImmediate(resolve));
+    const api = native.createSharedFetchHandler('/api');
+    const request = (method = 'codex-eyes-hands/summary') => new Request('http://localhost/api/codex-eyes-hands/summary', {
+        method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({type: 'client-request', rpcId: 'audit-summary', method, payload: {}}),
+    });
+    try {
+        const response = await api.fetch(request(), native.browserPeer);
+        assert.equal(response.status, 200);
+        const envelope = await response.json();
+        assert.equal(envelope.type, 'server-response');
+        assert.equal(envelope.rpcId, 'audit-summary');
+        assert.equal(envelope.result.value.intervalHours, 168);
+        const denied = await api.fetch(request(), {principal: {kind: 'guest'}});
+        assert.equal(denied.status, 403);
+        const mismatch = await api.fetch(request('updates/check'), native.browserPeer);
+        assert.equal(mismatch.status, 400);
+    } finally { await cleanup(); }
+    const removed = await api.fetch(request(), native.browserPeer);
+    assert.equal(removed.status, 404);
 });

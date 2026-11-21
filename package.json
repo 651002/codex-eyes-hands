@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-eyes-hands",
-  "version": "2.2.0",
+  "version": "2.2.2",
   "description": "Single DSH bundle: Codex delegation, scoped structured vision cache, crop/long-image OCR, local OCR opt-in and pixel diff.",
   "type": "commonjs",
   "license": "MIT",
@@ -60,5 +60,53 @@
     "build": "node scripts/build-plugin.mjs",
     "test": "node --test tests/resolver.test.mjs tests/attachments.test.mjs tests/vision.test.mjs tests/features.test.mjs tests/updates.test.mjs",
     "test:host": "node scripts/test-host.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-attachment-local": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-brand": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-sdk-protocol": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-storage-domain": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-subagent": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-timeout": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
+    "@deepseek-ai/schemastery": "~3.19.0",
+    "@deepseek-ai/dsh-client-connection": "0.2.2-rc.5"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-attachment-local": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-brand": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-sdk-protocol": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-storage-domain": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-subagent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-timeout": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    }
   }
 }

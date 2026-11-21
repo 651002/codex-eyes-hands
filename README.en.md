@@ -1,6 +1,6 @@
 # codex-eyes-hands v2.2: a single DSH bundle
 
-> v2.2.0 adds an in-plugin official-component compatibility panel and upstream-update reminders. Uses DSH storage and auth; no Codex automation, automatic installs or code merges.
+> v2.2.2 adds an in-plugin official-component compatibility panel and upstream-update reminders. Uses DSH storage and auth; no Codex automation, automatic installs or code merges.
 
 > **v2.1.0** adds scoped structured vision caching, crop/zoom, long-image tiling, pixel diff and opt-in existing local OCR. One bundle; no automatic engine/model installs. 41 offline tests passed; live vision and desktop use remain unverified.
 

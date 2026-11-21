@@ -1,4 +1,5 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -121,11 +122,28 @@ export function installMaintenance(ctx) {
                     features,
                     monitor
                 };
-                unregister = c.connection.rpc.handle('/codex-eyes-hands', createMaintenanceHandler({
-                    features,
-                    monitor,
-                    ownerSignal: control.signal
-                }));
+                const handler = createMaintenanceHandler({ features, monitor, ownerSignal: control.signal });
+                const routes = ['summary', 'status', 'features/set', 'updates/check', 'updates/settings', 'updates/acknowledge'];
+                const disposers = [];
+                unregister = async () => { await Promise.all(disposers.splice(0).map(dispose => dispose())); };
+                try {
+                    for (const endpoint of routes) disposers.push(c.connection.fetch.register({
+                        path: '/api/codex-eyes-hands/' + endpoint,
+                        methods: ['POST'], requestBody: 'buffered',
+                        async fetch(request) {
+                            if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+                                return new Response('content type must be application/json', {status: 415});
+                            }
+                            let body;
+                            try { body = await request.json(); } catch { return new Response('body is not JSON', {status: 400}); }
+                            const parsed = clientRequestSchema.safeParse(body);
+                            if (!parsed.success || parsed.data.method !== 'codex-eyes-hands/' + endpoint) return new Response('invalid RPC envelope', {status: 400});
+                            // The native exact-route registry admits owner peers only before invoking this handler.
+                            const result = await handler(endpoint, parsed.data.payload, request.signal, c.connection.browserPeer);
+                            return Response.json({type: 'server-response', rpcId: parsed.data.rpcId, result});
+                        },
+                    }));
+                } catch (error) { await unregister(); throw error; }
                 stop = startUpdateLoop(monitor, {
                     signal: control.signal
                 });

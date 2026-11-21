@@ -53,7 +53,7 @@ export function apply(ctx, config = {}) {
     ], (c)=>{
         const skillPath = fileURLToPath(new URL('../SKILL.md', import.meta.url));
         const candidate = {
-            name: 'codex-bridge',
+            name: 'codex-eyes-hands',
             description: 'DSH 缺少能力或用户指定 Codex 时，用 codex_task 委派；图片/文件用 /codex。优先已有 DSH 工具，不递归调用自身。',
             invocation: {
                 modelInvocable: true,
@@ -105,7 +105,7 @@ export function apply(ctx, config = {}) {
                         return {
                             kind: 'success',
                             text: JSON.stringify({
-                                version: '2.2.0',
+                                version: '2.2.2',
                                 codex: resolveCodexCommand({
                                     codexPath: config.codexPath
                                 }),

@@ -1,10 +1,10 @@
-# v2.2.0 验证记录
+# v2.2.2 验证记录
 
 目标：Windows，官方DSH 0.2.2-rc.5；日期2026-11-21。
 
 ## 最终自动测试结果
 
-69项通过、0失败：独立Node测试35项；使用安装版DSH宿主依赖和Electron Node的测试34项。界面含一次VM模拟点击验证，确保官方返回restart-required时提示重启；不等于真实浏览器渲染。
+70项通过、0失败：独立Node测试35项；使用安装版DSH宿主依赖和Electron Node的测试35项。界面含一次VM模拟点击验证，确保官方返回restart-required时提示重启；不等于真实浏览器渲染。
 
 ## 保留功能
 
@@ -28,3 +28,15 @@ Client测试只验证工厂/locale/slot注册及结构，不是运行中DSH的�
 ## 复现
 
 npm run build；npm test。设置DSH_TEST_INSTALL_DIR与DSH_TEST_EXECUTABLE为本机安装，再npm run test:host。测试临时目录可用CODEX_EYES_HANDS_TEST_ROOT指定到E盘。
+
+## 2.2.2 迁移检查
+
+Skill注册名称与SKILL.md frontmatter均为codex-eyes-hands，不再与旧codex-bridge同名。部署现场结果以本机备份目录的安装迁移记录为准；先前的未部署结论是2.2.0阶段记录，不能当作2.2.2的现场状态。
+
+## 2.2.2 加载与桌面传输修复
+
+真实link安装暴露两项遗漏：缺少宿主peer声明，以及自定义RPC通道未被Desktop载体转发。补齐optional peer避免另装DSH依赖；测试bootstrap改用官方PluginPackages解析；维护入口改为原生owner限定exact Fetch API路径，新增实际HostConnectionService共享API的正常/拒绝/卸载回归。此前69项通过不等于真实部署通过，以本次现场记录为准。
+
+## 本机2.2.2现场状态（2026-11-21）
+
+官方已安装页观察两条内部插件运行中；安全退出后重开，真实设置面板读取到168小时周期、成功检查时间和四个官方组件运行状态。没有运行真实模型/图像/电脑任务。旧DSH codex-bridge已验证备份，但递归删除命令被执行环境策略拒绝，旧目录仍存在；不得报告迁移清理全部完成。
