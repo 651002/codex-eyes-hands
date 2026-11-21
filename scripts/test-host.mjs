@@ -10,7 +10,7 @@ const result = spawnSync(exe, [
     ...[
         'host.test.mjs',
         'image.test.mjs',
-        'vision-host.test.mjs', 'maintenance-host.test.mjs', 'image-message-host.test.mjs', 'context-plugins-host.test.mjs'
+        'vision-host.test.mjs', 'maintenance-host.test.mjs', 'image-message-host.test.mjs', 'context-plugins-host.test.mjs', 'image-inline-host.test.mjs'
     ].map((f)=>path.join(root, 'tests', f))
 ], {
     env: {

@@ -35,3 +35,7 @@ npm run build；npm test。设置DSH_TEST_INSTALL_DIR和DSH_TEST_EXECUTABLE指�
 ## 2.4.0 图片体验
 
 新增原生pre-step/user-text/API集成与纯函数回归：保留原话/原图、旧网关恢复、摘要限长、全文会话隔离、取消、显式重试合并、文本消息零额外模型解析、原生视觉不重复识图、纯文本投影移除图片字节、owner API验证与清理。已有DSH实际历史聊天已观察缩略图和“旧图片附件·未重新识图”，未重写历史记录。真实模型识图准确率未测试，不将离线fixture冒充真实模型验收。
+
+## 2.4.2 真实聊天拼接回归
+
+用户反馈真实新消息仍暴露内部JSON。根因：DSH的MessageItem.contentParts把文字块join(空串)，而旧折叠规则要求codex-image在行首。旧测试只测行首，未覆盖真实拼接，是验收缺口。现直接读取实际安装宿主的contentParts和UserTextDocument源码，用TypeScript内置剥离后组合执行，验证同一行摘要折叠、后缀原话保留、多图相邻、字符串内括号/引号、坏标记跳过和不完整输入。仅使用内存样例，不运行收费模型。历史消息仅显示变化，不改存档。
