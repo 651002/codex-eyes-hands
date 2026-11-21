@@ -24,7 +24,7 @@ test('real host empty-separator join folds appended image metadata and preserves
  const {rule,component}=client();const question='浏览器自动化我安装了这个，dsh可以用吗，有插件还是skill';
  const {text,nodes,plain}=project([question,marker()],rule);
  assert.equal(plain,question);const notes=nodes.filter(n=>n.id==='codex-image');assert.equal(notes.length,1);
- const tree=JSON.stringify(component({node:notes[0]}));assert.ok(tree.includes('识图完成'));assert.ok(tree.includes('"aria-expanded":false'));assert.ok(!tree.includes('ego (lite)'));assert.ok(!tree.includes('textBlocks'));
+ const tree=JSON.stringify(component({node:notes[0]}));assert.ok(tree.includes('图片已读取'));assert.ok(tree.includes('"aria-expanded":false'));assert.ok(!tree.includes('ego (lite)'));assert.ok(!tree.includes('textBlocks'));
  assert.equal(text.slice(notes[0].start,notes[0].end),marker());
 });
 
@@ -46,4 +46,12 @@ test('line-start legacy markers remain supported; an oversized incomplete marker
  const {rule}=client();const line='用户原话\n'+marker();assert.equal(project([line],rule).plain,'用户原话\n');
  const raw='普通文本[codex-image] {"summary":"'+'x'.repeat(20000);
  assert.equal(project([raw],rule).plain,raw);
+});
+
+test('two adjacent image records have one compact disclosure, not two status rows',()=>{
+ const {rule,component}=client();const question='请比较两张截图，保留我的原话。';
+ const r=project([question,marker('a'.repeat(64)),marker('b'.repeat(64))],rule);
+ assert.equal(r.plain,question);const notes=r.nodes.filter(n=>n.id==='codex-image');assert.equal(notes.length,1);
+ assert.equal(notes[0].data.items.length,2);const tree=component({node:notes[0]});
+ assert.ok(JSON.stringify(tree).includes('图片已读取'));assert.equal(JSON.stringify(tree).split('图片详情').length-1,1);
 });

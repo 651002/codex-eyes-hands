@@ -1,3 +1,5 @@
+> **v2.5.0**: One status and detail disclosure per image-message group. New messages show it outside the user bubble using the native source-decoration slot. Historical messages use a compact grouped fallback, without rewriting stored events. Human-readable details; technical metadata is collapsed.
+
 > **v2.4.0**: Native image messages, background vision for text-only models, compact summaries and on-demand full detail. Uses the existing Codex and may consume model usage; no desktop actions are performed during vision.
 
 # codex-eyes-hands v2.2: a single DSH bundle

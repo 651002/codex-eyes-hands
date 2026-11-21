@@ -87,3 +87,14 @@ test('recovered picture handles can be paged in long sessions without exposing a
  assert.equal(a.records.length,10);assert.equal(b.records.length,2);assert.equal(b.nextListOffset,null);assert.equal(new Set([...a.records,...b.records].map(x=>x.id)).size,12);
  assert.throws(()=>s.recent('paging',10,-1),/偏移/);assert.throws(()=>s.recent('paging',100),/limit/);
 });
+
+test('new image group uses native source metadata outside the bubble without changing user attribution',async()=>{
+ const dir=fs.mkdtempSync(path.join(base,'outside-source-'));
+ const s=new ImageMessages({directory:dir,attachments:()=>({imageHostPath:r=>'/fixture-'+r.n+'.png'}),vision:async()=>({overview:'test',text:[],uncertainties:[]})});
+ const source={kind:'user',requestId:'unchanged-request'};
+ const m={id:'two-native',source,content:[{type:'image',attachment:{n:1}},{type:'image',attachment:{n:2}},{type:'text',text:'两张截图请比较'}]};
+ const out=await s.process({agent:{id:'group-s'},messages:[m],signal:new AbortController().signal},false);
+ assert.equal(out[0].source.kind,'user');assert.equal(out[0].source.requestId,source.requestId);assert.equal(out[0].source.codexEyesHands.images.length,2);
+ assert.equal(source.codexEyesHands,undefined);assert.equal(m.content.length,3);
+ for(const b of out[0].content.filter(b=>b.type==='text'&&b.text.startsWith('[codex-image] ')))assert.equal(JSON.parse(b.text.slice(14)).presentation,'outside');
+});

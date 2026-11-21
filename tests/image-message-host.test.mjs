@@ -43,7 +43,7 @@ test('native text rule folds technical text only and keeps details closed',()=>{
  const ctx={uiConversation:{userText:{register:r=>rule=r}},effect:()=>{},locale:{bind:()=>x=>x},connection:{rpc:{call:()=>assert.fail('no fetch in structural render')}},slots:{inject:(_n,f)=>f(),register:(d,c)=>{if(d.key==='codex-image')component=c;}}};plugin.apply(ctx);
  const id='a'.repeat(64),text='[codex-image] '+JSON.stringify({id,status:'done',summary:'SHORT',keyText:['PRIVATE LONG OCR']})+'\n我的原话';
  const node=rule.match(text,0);assert.equal(text.slice(node.end),'\n我的原话');assert.equal(rule.match('引用 '+text,0),undefined);
- const tree=component({node});assert.ok(!JSON.stringify(tree).includes('PRIVATE LONG OCR'));assert.ok(JSON.stringify(tree).includes('"aria-expanded":false'));assert.ok(JSON.stringify(tree).includes('识图完成'));
+ const tree=component({node});assert.ok(!JSON.stringify(tree).includes('PRIVATE LONG OCR'));assert.ok(JSON.stringify(tree).includes('"aria-expanded":false'));assert.ok(JSON.stringify(tree).includes('图片已读取'));
 });
 
 test('normal text does not resolve a model or start background vision',async()=>{
