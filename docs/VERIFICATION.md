@@ -39,3 +39,11 @@ npm run build；npm test。设置DSH_TEST_INSTALL_DIR和DSH_TEST_EXECUTABLE指�
 ## 2.4.2 真实聊天拼接回归
 
 用户反馈真实新消息仍暴露内部JSON。根因：DSH的MessageItem.contentParts把文字块join(空串)，而旧折叠规则要求codex-image在行首。旧测试只测行首，未覆盖真实拼接，是验收缺口。现直接读取实际安装宿主的contentParts和UserTextDocument源码，用TypeScript内置剥离后组合执行，验证同一行摘要折叠、后缀原话保留、多图相邻、字符串内括号/引号、坏标记跳过和不完整输入。仅使用内存样例，不运行收费模型。历史消息仅显示变化，不改存档。
+
+## 2.4.3 后台Codex原生进程
+
+证据：本机Codex 0.170.0的bin/codex.js再次spawn原生程序，无windowsHide；本机DSH subprocess-local直接spawn/Windows job runner已有windowsHide=true。改resolveCodexCommand使Windows官方npm入口优先解析同包native exe。
+
+真实宿主验证使用LocalSubprocessRuntime与实装codex.exe，发送initialize，未发送thread/start或turn/start；初始化成功，25ms采样共64次，未新增Codex控制台窗口。随后终止仅本测试子进程，done exitCode1为主动终止结果，waitForExit=true；不能冒称正常模型任务完成。
+
+新增Resolver测试覆盖x64、ARM64、旧vendor布局、缺原生exe明确失败、显式exe、自定义JS与非Windows保留。CI常规不启动实装Codex，CEH_TEST_NATIVE_STARTUP=1时显式启用本机初始化窗口验证。

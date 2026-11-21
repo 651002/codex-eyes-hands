@@ -2,7 +2,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-export function resolveCodexCommand({ codexPath, env = process.env } = {}) {
+// The npm launcher starts another console process on Windows. Use the very same
+// packaged executable as that launcher, keeping DSH's hidden/job-managed spawn.
+function windowsNativeCodex(launcher, platform, arch) {
+    if (platform !== 'win32' || path.basename(launcher) !== 'codex.js' || path.basename(path.dirname(launcher)) !== 'bin') return;
+    const packageRoot = path.dirname(path.dirname(launcher));
+    let manifest;
+    try { manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')); } catch { return; }
+    if (manifest.name !== '@openai/codex') return;
+    const target = {x64:'x86_64-pc-windows-msvc',arm64:'aarch64-pc-windows-msvc'}[arch];
+    if (!target) throw Error('Unsupported Windows Codex architecture: ' + arch);
+    let vendor = path.join(packageRoot, 'vendor');
+    try { vendor = path.join(path.dirname(createRequire(launcher).resolve('@openai/codex-win32-' + arch + '/package.json')), 'vendor'); } catch {}
+    const binary = path.join(vendor, target, 'bin', 'codex.exe');
+    try { if (fs.statSync(binary).isFile()) return fs.realpathSync(binary); } catch {}
+    throw Error('Installed Windows Codex native executable not found; select an existing codex.exe or repair the current Codex installation. No launcher fallback was started.');
+}
+export function resolveCodexCommand({ codexPath, env = process.env, platform = process.platform, arch = process.arch } = {}) {
     const explicit = codexPath || env.CODEX_EYES_HANDS_CODEX_PATH;
     const candidates = [];
     if (explicit) {
@@ -28,17 +44,15 @@ export function resolveCodexCommand({ codexPath, env = process.env } = {}) {
         }).filter((x)=>x.isDirectory()).sort((a, b)=>fs.statSync(path.join(app, b.name)).mtimeMs - fs.statSync(path.join(app, a.name)).mtimeMs))candidates.push(path.join(app, item.name, 'codex.exe'));
     }
     for (const f of candidates){
-        try {
-            const real = fs.realpathSync(f);
-            if (!fs.statSync(real).isFile() || /\.(cmd|bat|ps1)$/i.test(real)) continue;
-            if (/\.[cm]?js$/i.test(real)) return [
-                env.DSH_NODE_EXECUTABLE || process.execPath,
-                real
-            ];
-            return [
-                real
-            ];
-        } catch  {}
+        let real;
+        try { real = fs.realpathSync(f); if (!fs.statSync(real).isFile()) continue; } catch { continue; }
+        if (/\.(cmd|bat|ps1)$/i.test(real)) continue;
+        if (/\.[cm]?js$/i.test(real)) {
+            const native = windowsNativeCodex(real, platform, arch);
+            if (native) return [native];
+            return [env.DSH_NODE_EXECUTABLE || process.execPath, real];
+        }
+        return [real];
     }
     throw new Error('Codex executable not found / 未找到 Codex。请在插件设置填写已有 codex.exe 或 bin/codex.js 的绝对路径。');
 }
