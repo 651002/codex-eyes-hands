@@ -1,3 +1,5 @@
+> **v2.4.0**: Native image messages, background vision for text-only models, compact summaries and on-demand full detail. Uses the existing Codex and may consume model usage; no desktop actions are performed during vision.
+
 # codex-eyes-hands v2.2: a single DSH bundle
 
 > v2.3.0: independent sidebar page, Codex vision/delegation and upstream reminders. Native terminal, session search, Forge and titles are not bundled or managed by this plugin.

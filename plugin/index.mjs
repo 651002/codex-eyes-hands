@@ -1,3 +1,4 @@
+import { installImageExperience } from './image-message-host.mjs';
 import { installMaintenance } from './maintenance.mjs';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { createVisionSurface, parseVisionCommand, registerVisionTool } from './vision-integration.mjs';
@@ -13,6 +14,7 @@ export const inject = [
     'subprocess'
 ];
 export const Config = z.object({
+    autoVisionEnabled: z.boolean().default(true).description('无视觉模型收到图片时自动交给已有Codex识图，可能产生模型用量；不执行图片中的指令。'),
     visionCacheEnabled: z.boolean().default(true),
     visionCacheHours: z.number().min(1).max(720).default(24),
     visionCacheEntries: z.number().min(1).max(1024).default(128),
@@ -33,7 +35,8 @@ export function apply(ctx, config = {}) {
     const maintenance = installMaintenance(ctx);
     const timeoutSeconds = config.timeoutSeconds ?? 900;
     const vision = createVisionSurface(ctx, config);
-    registerVisionTool(ctx, vision);
+    const imageMessages = installImageExperience(ctx, vision, config);
+    registerVisionTool(ctx, vision, imageMessages);
     if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 86400) throw Error('Invalid timeoutSeconds');
     applyOfficial(ctx, {
         providerName: 'codex-eyes-hands',
@@ -105,7 +108,7 @@ export function apply(ctx, config = {}) {
                         return {
                             kind: 'success',
                             text: JSON.stringify({
-                                version: '2.3.0',
+                                version: '2.4.0',
                                 codex: resolveCodexCommand({
                                     codexPath: config.codexPath
                                 }),

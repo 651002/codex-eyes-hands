@@ -88,7 +88,7 @@ const css=".ceh-page{container-type:inline-size;box-sizing:border-box;height:100
 
         function Icon(){return h('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.6,className:'ceh-icon','aria-hidden':true},h('path',{d:'M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z'}),h('circle',{cx:12,cy:12,r:2.5}));}
         return {
-            inject:['slots','connection','locale','layout'],
+            inject:['slots','connection','locale','layout','uiConversation'],
             apply(ctx){
                 ctx.effect(()=>ctx.locale.register(PANEL,words));
                 const t=ctx.locale.bind(PANEL);
@@ -107,7 +107,7 @@ const css=".ceh-page{container-type:inline-size;box-sizing:border-box;height:100
                         h('header',{className:'ceh-header'},h('div',null,h('h1',{className:'ceh-title'},t('title')),h('div',{className:'ceh-muted'},t('subtitle'))),h('div',{className:'ceh-actions'},button(t('refresh'),()=>refresh()),settings&&button(t('settings'),()=>settings.openBundle('dsh-codex-eyes-hands')))),
                         error&&h('div',{className:'ceh-notice',role:'alert'},t('failed')+': '+error,' ',button(t('refresh'),()=>refresh())),
                         notice&&h('div',{className:'ceh-notice',role:'status'},notice),
-                        h('section',{className:'ceh-metrics','aria-label':t('subtitle')},metric(t('version'),full?.pluginVersion||'2.3.0'),metric(t('active'),state?t(state.enabled?'enabled':'paused'):'—'),metric(t('pending'),state?pending.length:'—'),metric('Codex',t('noTask'))),
+                        h('section',{className:'ceh-metrics','aria-label':t('subtitle')},metric(t('version'),full?.pluginVersion||'2.4.0'),metric(t('active'),state?t(state.enabled?'enabled':'paused'):'—'),metric(t('pending'),state?pending.length:'—'),metric('Codex',t('noTask'))),
                         h('div',{className:'ceh-grid'},h('section',{className:'ceh-card','aria-label':t('updates')},
                             h('div',{className:'ceh-row',style:{marginTop:0}},h('h2',{className:'ceh-section-title'},t('updates')),h('div',{className:'ceh-actions'},button(t('check'),()=>act('updates/check',{})),button(t('ack'),()=>act('updates/acknowledge',{}),!pending.length))),
                             state&&h(React.Fragment,null,h('p',{className:'ceh-muted'},t('last')+': '+(state.lastSuccess?new Date(state.lastSuccess).toLocaleString():t('never'))),state.lastError&&h('div',{role:'status'},t('attention')+state.lastError),
@@ -119,6 +119,35 @@ const css=".ceh-page{container-type:inline-size;box-sizing:border-box;height:100
                                 h('h2',{className:'ceh-section-title',style:{marginTop:24}},t('safety')),h('p',{className:'ceh-muted'},t('safetyText')),h('p',{className:'ceh-muted'},t('nativeBoundary')))),
                         h('footer',{className:'ceh-muted ceh-footer'},t('noFake')));
                 }
+
+                // Native user-text extension: never rewrite saved conversation events or scrape the DOM.
+                if(ctx.uiConversation) {
+                    const marker=/^\[codex-image\] (\{[^\r\n]*\})/gm;
+                    const legacy=/^\[图片附件\] 用户附带了一张图片（image\/(?:png|jpeg|webp|gif)），当前模型不支持图片输入，已落地为本地文件。\r?\n(?:原始文件名: [^\r\n]*\r?\n)?本地文件绝对路径: [^\r\n]+\r?\n请先用本地视觉工具（codex-bridge 技能的 see 模式）查看该图片，拿到文字描述后再回答用户。/gm;
+                    ctx.uiConversation.userText.register({id:'codex-image',order:5,match(text,from){
+                        marker.lastIndex=from;legacy.lastIndex=from;const a=marker.exec(text),b=legacy.exec(text);
+                        if(a&&(!b||a.index<=b.index)){try{const v=JSON.parse(a[1]);if(/^[a-f0-9]{64}$/.test(v.id))return {id:'codex-image',start:a.index,end:a.index+a[0].length,data:{id:v.id,initial:v}};}catch{}return;}
+                        if(b)return {id:'codex-image',start:b.index,end:b.index+b[0].length,data:{legacy:b[0]}};
+                    }});
+                    function ImageNote({node}) {
+                        const data=node.data,uid=React.useId();
+                        const [view,setView]=React.useState(data.initial?{status:data.initial.status,summary:data.initial}:null),[error,setError]=React.useState(''),[expanded,setExpanded]=React.useState(false),[detail,setDetail]=React.useState(null),[loading,setLoading]=React.useState(false),[large,setLarge]=React.useState(false);
+                        const call=async(action,payload,signal)=>{const r=await ctx.connection.rpc.call('/api','codex-eyes-hands/image/'+action,payload,signal);if(!r.ok)throw Error(r.error.message);return r.value;};
+                        React.useEffect(()=>{const c=new AbortController();let timer;const read=async()=>{try{const v=await call(data.id?'status':'legacy',data.id?{id:data.id}:{text:data.legacy},c.signal);if(c.signal.aborted)return;setView(v);if(v.status==='pending')timer=setTimeout(read,2000);}catch(e){if(!c.signal.aborted)setError(e.message);}};read();return()=>{c.abort();clearTimeout(timer);};},[data.id,data.legacy]);
+                        const toggle=async()=>{const next=!expanded;setExpanded(next);if(!next||detail||!data.id)return;setLoading(true);try{setDetail(await call('details',{id:data.id}));}catch(e){setError(e.message);}finally{setLoading(false);}};
+                        const retry=async()=>{setError('');setLoading(true);setView({...view,status:'pending'});try{setView(await call('retry',{id:data.id}));setDetail(null);}catch(e){setError(e.message);}finally{setLoading(false);}};
+                        const status=view?.status,label=status==='done'?'识图完成':status==='pending'?'正在识图…':status==='failed'?'识图失败':status==='cancelled'?'识图已取消':status==='legacy'?'旧图片附件 · 未重新识图':'图片附件 · 正在恢复显示…';
+                        const buttonStyle={font:'inherit',color:'inherit',background:'transparent',border:'1px solid var(--dsw-alias-border-l2)',borderRadius:6,padding:'5px 9px',cursor:'pointer'};
+                        return h('span',{style:{display:'block',padding:'8px 0',fontSize:13,lineHeight:1.5}},
+                            view?.preview&&!data.id&&h('button',{type:'button',onClick:()=>setLarge(!large),'aria-label':(large?'收起图片预览':'展开图片预览')+' '+uid,style:{...buttonStyle,display:'block',padding:0,marginBottom:6,maxWidth:'100%'}},h('img',{src:view.preview,alt:'用户上传的图片预览',style:{display:'block',width:large?'100%':180,maxWidth:480,maxHeight:large?'none':140,objectFit:'contain'}})),
+                            h('span',{role:'status'},label),data.id&&h('button',{type:'button',onClick:toggle,'aria-expanded':expanded,'aria-controls':uid,style:{...buttonStyle,marginLeft:8}},expanded?'收起详情':'查看详情'),
+                            data.id&&['failed','cancelled'].includes(status)&&h('button',{type:'button',onClick:retry,disabled:loading,style:{...buttonStyle,marginLeft:8}},'重试识图'),
+                            error&&h('span',{role:'alert',style:{display:'block',marginTop:5}},'图片处理暂不可用：'+error),
+                            expanded&&h('span',{id:uid,style:{display:'block',marginTop:8}},h('span',{style:{display:'block'}},view?.summary?.summary||''),h('pre',{style:{whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxHeight:260,overflow:'auto',fontSize:12}},loading?'正在读取详情…':detail?JSON.stringify(detail,null,2):view?.error||'暂无完整识图结果。')));
+                    }
+                    ctx.slots.inject('conversation.user.text.node',()=>ctx.slots.register({name:'conversation.user.text.node',key:'codex-image',priority:100},ImageNote));
+                }
+
                 ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:PANEL,locale:PANEL},Page));
                 ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id:PANEL,order:35,label:()=>t('title'),locale:PANEL},Icon));
             }

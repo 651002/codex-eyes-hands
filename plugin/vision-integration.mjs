@@ -96,6 +96,7 @@ export function createVisionSurface(ctx, config) {
         return out;
     }
     return {
+        thumbnail: data=>imageProcessor().thumbnail(data),
         async command (inv, parsed) {
             const inputs = await attachments(inv);
             if (parsed.mode === 'diff') {
@@ -140,7 +141,7 @@ export function createVisionSurface(ctx, config) {
         }
     };
 }
-export function registerVisionTool(ctx, surface) {
+export function registerVisionTool(ctx, surface, imageMessages) {
     ctx.inject([
         'tools',
         'fs'
@@ -216,6 +217,9 @@ export function registerVisionTool(ctx, surface) {
                     ]
             },
             isConcurrencySafe: ()=>true,
-            execute: async (args, exec)=>JSON.stringify(await surface.tool(args, exec))
+            execute: async (args, exec)=>{
+                const full=await surface.tool(args, exec);
+                return JSON.stringify(imageMessages?imageMessages.record(full,String(exec.agent.id)):full);
+            }
         })));
 }

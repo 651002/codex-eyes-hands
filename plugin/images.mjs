@@ -46,6 +46,11 @@ export function createImageProcessor({ sharp, directory, maxPixels = 64000000, m
         return img;
     }
     return {
+        async thumbnail(data) {
+            const img=await decoded(data);
+            const bytes=await img.resize({width:480,height:360,fit:'inside',withoutEnlargement:true}).jpeg({quality:75}).toBuffer();
+            return 'data:image/jpeg;base64,'+bytes.toString('base64');
+        },
         async prepare (data, { crop, zoom = 1, chunkHeight = 1600, overlap = Math.min(128, Math.floor(chunkHeight / 4)), signal } = {}) {
             signal?.throwIfAborted();
             if (!Number.isFinite(zoom) || zoom < 1 || zoom > 4 || !Number.isInteger(chunkHeight) || chunkHeight < 64 || chunkHeight > 4096 || !Number.isInteger(overlap) || overlap < 0 || overlap >= chunkHeight) throw Error('Invalid crop/zoom/chunk options');
